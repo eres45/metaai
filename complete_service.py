@@ -100,27 +100,43 @@ class MetaGenerationService:
             page = await context.new_page()
             
             try:
+                print(f"Navigating to meta.ai...")
                 await page.goto("https://www.meta.ai")
+                print(f"Page loaded: {page.url}")
+                
+                # Check if logged in
+                await asyncio.sleep(3)
+                page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
+                print(f"Page content preview: {page_text}")
                 
                 # Submit prompt
+                print(f"Submitting prompt: {prompt}")
                 await page.evaluate("""(prompt) => {
                     const textarea = document.querySelector('textarea[data-testid="composer-input"]');
                     if (textarea) {
                         textarea.value = prompt;
                         textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                        console.log('Prompt set');
+                    } else {
+                        console.log('Textarea not found');
                     }
                 }""", prompt)
                 await page.keyboard.press("Enter")
+                print("Prompt submitted")
                 
                 # Wait for generation
+                print("Waiting 15s for generation...")
                 await asyncio.sleep(15)
                 
                 # Extract image URLs
+                print("Looking for images...")
                 images = await page.query_selector_all('img[data-testid="generated-image"]')
+                print(f"Found {len(images)} images")
                 image_urls = []
                 
-                for img in images[:num_images]:
+                for i, img in enumerate(images[:num_images]):
                     src = await img.get_attribute('src')
+                    print(f"Image {i}: {src[:50] if src else 'None'}...")
                     if src and src not in image_urls:
                         image_urls.append(src)
                 
