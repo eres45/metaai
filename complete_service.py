@@ -59,7 +59,8 @@ class MetaGenerationService:
             # Load cookies from env
             await page.goto("https://www.meta.ai")
             await self._setup_cookies_from_env(context)
-            await page.reload()
+            # Navigate again to apply cookies
+            await page.goto("https://www.meta.ai")
             await asyncio.sleep(2)
             
             try:
