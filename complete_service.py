@@ -57,15 +57,15 @@ class MetaGenerationService:
             page = await context.new_page()
             
             # Load cookies from env
+            await page.goto("https://www.meta.ai")
             await self._setup_cookies_from_env(context)
+            await page.reload()
+            await asyncio.sleep(2)
             
             try:
-                print(f"Navigating to meta.ai...")
-                await page.goto("https://www.meta.ai")
                 print(f"Page loaded: {page.url}")
                 
                 # Check if logged in
-                await asyncio.sleep(3)
                 page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
                 print(f"Page content preview: {page_text}")
                 
