@@ -56,10 +56,17 @@ class MetaGenerationService:
             )
             page = await context.new_page()
             
-            # Load cookies from env
-            await page.goto("https://www.meta.ai")
-            await self._setup_cookies_from_env(context)
-            # Navigate again to apply cookies
+            # Load storage state from env if available
+            storage_json = os.environ.get("STORAGE_STATE")
+            if storage_json:
+                try:
+                    storage_state = json.loads(storage_json)
+                    await context.add_cookies(storage_state.get("cookies", []))
+                    print(f"✅ Loaded {len(storage_state.get('cookies', []))} cookies from storage state")
+                except Exception as e:
+                    print(f"⚠️ Failed to load storage state: {e}")
+            
+            # Navigate to site
             await page.goto("https://www.meta.ai")
             await asyncio.sleep(2)
             
