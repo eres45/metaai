@@ -19,6 +19,71 @@ class MetaGenerationService:
         self.user_data_dir = user_data_dir
         self.downloads_dir = Path("downloads")
         self.downloads_dir.mkdir(exist_ok=True)
+        
+        # Load cookies from environment variable if available
+        self._setup_cookies_from_env()
+    
+    def _setup_cookies_from_env(self):
+        """Load cookies from META_COOKIES env var and save to session."""
+        cookies_json = os.environ.get("META_COOKIES")
+        if cookies_json:
+            try:
+                cookies = json.loads(cookies_json)
+                self._save_cookies_to_session(cookies)
+                print(f"✅ Loaded {len(cookies)} cookies from environment")
+            except Exception as e:
+                print(f"⚠️ Failed to load cookies from env: {e}")
+    
+    def _save_cookies_to_session(self, cookies: dict):
+        """Save cookies to the Chrome session SQLite database."""
+        import sqlite3
+        
+        session_path = Path(self.user_data_dir) / "Default"
+        session_path.mkdir(parents=True, exist_ok=True)
+        
+        cookies_db = session_path / "Cookies"
+        
+        # Create/connect to SQLite database
+        conn = sqlite3.connect(str(cookies_db))
+        cursor = conn.cursor()
+        
+        # Create table if not exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cookies (
+                creation_utc INTEGER,
+                host_key TEXT,
+                name TEXT,
+                value TEXT,
+                path TEXT,
+                expires_utc INTEGER,
+                is_secure INTEGER,
+                is_httponly INTEGER,
+                last_access_utc INTEGER,
+                has_expires INTEGER,
+                is_persistent INTEGER,
+                priority INTEGER,
+                encrypted_value BLOB,
+                samesite INTEGER,
+                source_scheme INTEGER,
+                source_port INTEGER,
+                is_same_party INTEGER
+            )
+        """)
+        
+        # Insert cookies
+        from time import time
+        now = int(time() * 1000000)
+        
+        for name, value in cookies.items():
+            cursor.execute("""
+                INSERT OR REPLACE INTO cookies 
+                (creation_utc, host_key, name, value, path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, priority)
+                VALUES (?, '.meta.ai', ?, ?, '/', 0, 1, 1, ?, 0, 1, 1)
+            """, (now, name, value, now))
+        
+        conn.commit()
+        conn.close()
+        print(f"💾 Saved {len(cookies)} cookies to session")
     
     async def generate_images(
         self, 
