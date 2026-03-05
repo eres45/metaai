@@ -282,6 +282,16 @@ class MetaGenerationService:
             )
             page = await context.new_page()
             
+            # Load storage state from env if available
+            storage_json = os.environ.get("STORAGE_STATE")
+            if storage_json:
+                try:
+                    storage_state = json.loads(storage_json)
+                    await context.add_cookies(storage_state.get("cookies", []))
+                    print(f"✅ Loaded {len(storage_state.get('cookies', []))} cookies from storage state")
+                except Exception as e:
+                    print(f"⚠️ Failed to load storage state: {e}")
+            
             try:
                 # Navigate to /media page
                 await page.goto("https://www.meta.ai/media")
