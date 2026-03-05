@@ -96,16 +96,16 @@ class MetaGenerationService:
                 print("Waiting 15s for generation...")
                 await asyncio.sleep(15)
                 
-                # Extract image URLs
+                # Extract image URLs - look for images from fbcdn (Facebook CDN)
                 print("Looking for images...")
-                images = await page.query_selector_all('img[data-testid="generated-image"]')
+                images = await page.query_selector_all('img[src*="fbcdn.net"], img[src*="scontent"], img[data-testid="generated-image"]')
                 print(f"Found {len(images)} images")
                 image_urls = []
                 
                 for i, img in enumerate(images[:num_images]):
                     src = await img.get_attribute('src')
                     print(f"Image {i}: {src[:50] if src else 'None'}...")
-                    if src and src not in image_urls:
+                    if src and src not in image_urls and 'fbcdn' in src:
                         image_urls.append(src)
                 
                 await context.close()
