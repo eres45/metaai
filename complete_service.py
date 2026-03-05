@@ -274,13 +274,18 @@ class MetaGenerationService:
         Generate video using working Text-to-Video method on /media page.
         Based on Auto Meta extension workflow.
         """
+        print(f"\n[VIDEO] Starting video generation for: {prompt}")
+        
         async with async_playwright() as p:
+            print("[VIDEO] Playwright initialized")
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=self.user_data_dir,
                 headless=True,
                 args=["--disable-blink-features=AutomationControlled"]
             )
+            print("[VIDEO] Browser context created")
             page = await context.new_page()
+            print("[VIDEO] New page created")
             
             try:
                 # Load storage state from env if available
@@ -294,10 +299,10 @@ class MetaGenerationService:
                         print(f"⚠️ Failed to load storage state: {e}")
                 
                 # Navigate to /media page
-                print(f"Navigating to /media page...")
+                print(f"[VIDEO] Navigating to /media page...")
                 await page.goto("https://www.meta.ai/media")
                 await asyncio.sleep(3)
-                print(f"Page loaded: {page.url}")
+                print(f"[VIDEO] Page loaded: {page.url}")
                 
                 # Check page loaded
                 page_text = await page.evaluate("() => document.body.innerText.slice(0, 200)")
