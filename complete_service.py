@@ -104,8 +104,9 @@ class MetaGenerationService:
                 
                 for i, img in enumerate(images[:num_images]):
                     src = await img.get_attribute('src')
-                    print(f"Image {i}: {src[:50] if src else 'None'}...")
-                    if src and src not in image_urls and 'fbcdn' in src:
+                    print(f"Image {i}: {src[:80] if src else 'None'}...")
+                    # Filter: must be fbcdn, NOT a UI icon (rsrc.php), and not already added
+                    if src and src not in image_urls and 'fbcdn' in src and 'rsrc.php' not in src:
                         image_urls.append(src)
                 
                 await context.close()
