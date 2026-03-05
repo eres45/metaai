@@ -282,22 +282,29 @@ class MetaGenerationService:
             )
             page = await context.new_page()
             
-            # Load storage state from env if available
-            storage_json = os.environ.get("STORAGE_STATE")
-            if storage_json:
-                try:
-                    storage_state = json.loads(storage_json)
-                    await context.add_cookies(storage_state.get("cookies", []))
-                    print(f"✅ Loaded {len(storage_state.get('cookies', []))} cookies from storage state")
-                except Exception as e:
-                    print(f"⚠️ Failed to load storage state: {e}")
-            
             try:
+                # Load storage state from env if available
+                storage_json = os.environ.get("STORAGE_STATE")
+                if storage_json:
+                    try:
+                        storage_state = json.loads(storage_json)
+                        await context.add_cookies(storage_state.get("cookies", []))
+                        print(f"✅ Loaded {len(storage_state.get('cookies', []))} cookies from storage state")
+                    except Exception as e:
+                        print(f"⚠️ Failed to load storage state: {e}")
+                
                 # Navigate to /media page
+                print(f"Navigating to /media page...")
                 await page.goto("https://www.meta.ai/media")
                 await asyncio.sleep(3)
+                print(f"Page loaded: {page.url}")
+                
+                # Check page loaded
+                page_text = await page.evaluate("() => document.body.innerText.slice(0, 200)")
+                print(f"Page content: {page_text[:100]}...")
                 
                 # Enter prompt using JavaScript
+                print(f"Submitting prompt: {prompt}")
                 await page.evaluate("""(prompt) => {
                     const ta = document.querySelector('textarea[data-testid="composer-input"]');
                     if (ta) {
@@ -310,6 +317,7 @@ class MetaGenerationService:
                 # Submit
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
+                print("Prompt submitted, waiting for videos...")
                 
                 # Wait for videos (poll every 3 seconds for 30 seconds)
                 video_urls = []
@@ -320,10 +328,12 @@ class MetaGenerationService:
                     videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"]')
                     
                     if videos:
+                        print(f"Found {len(videos)} videos after {(i+1)*3}s")
                         for vid in videos:
                             src = await vid.get_attribute('src')
                             if src and src not in video_urls:
                                 video_urls.append(src)
+                                print(f"  Video URL: {src[:60]}...")
                         
                         if len(video_urls) >= 4:
                             break
@@ -338,6 +348,9 @@ class MetaGenerationService:
                 }
                 
             except Exception as e:
+                print(f"❌ Video generation error: {e}")
+                import traceback
+                traceback.print_exc()
                 await context.close()
                 return {"success": False, "error": str(e)}
     
