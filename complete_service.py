@@ -301,12 +301,17 @@ class MetaGenerationService:
                 # Navigate to /media page
                 print(f"[VIDEO] Navigating to /media page...")
                 await page.goto("https://www.meta.ai/media")
-                await asyncio.sleep(3)
-                print(f"[VIDEO] Page loaded: {page.url}")
+                await asyncio.sleep(5)  # Longer wait for any redirects
+                print(f"[VIDEO] Final URL: {page.url}")
                 
-                # Check page loaded
-                page_text = await page.evaluate("() => document.body.innerText.slice(0, 200)")
-                print(f"Page content: {page_text[:100]}...")
+                # Check page loaded - wait for it to stabilize
+                for check in range(3):
+                    await asyncio.sleep(2)
+                    page_text = await page.evaluate("() => document.body.innerText.slice(0, 200)")
+                    print(f"[VIDEO] Page content check {check+1}: {page_text[:100]}...")
+                    if 'Quick test' in page_text or 'Create' in page_text:
+                        print("[VIDEO] Page looks correct!")
+                        break
                 
                 # Enter prompt using JavaScript
                 print(f"Submitting prompt: {prompt}")
