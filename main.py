@@ -206,6 +206,17 @@ async def download_file(task_id: str, file_index: int):
         return {"error": "File not found"}
 
 
+@app.get("/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment variables."""
+    meta_cookies = os.environ.get("META_COOKIES", "NOT SET")
+    return {
+        "meta_cookies_set": meta_cookies != "NOT SET",
+        "meta_cookies_length": len(meta_cookies) if meta_cookies != "NOT SET" else 0,
+        "meta_cookies_preview": meta_cookies[:100] + "..." if meta_cookies != "NOT SET" and len(meta_cookies) > 100 else meta_cookies
+    }
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
