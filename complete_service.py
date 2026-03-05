@@ -66,16 +66,16 @@ class MetaGenerationService:
                 except Exception as e:
                     print(f"⚠️ Failed to load storage state: {e}")
             
-            # Navigate to site
-            await page.goto("https://www.meta.ai")
-            await asyncio.sleep(2)
+            # Navigate to /media page (works better than main page)
+            await page.goto("https://www.meta.ai/media")
+            await asyncio.sleep(3)
             
             try:
                 print(f"Page loaded: {page.url}")
                 
-                # Check if logged in
+                # Check page loaded properly
                 page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
-                print(f"Page content preview: {page_text}")
+                print(f"Page content preview: {page_text[:200]}...")
                 
                 # Submit prompt
                 print(f"Submitting prompt: {prompt}")
