@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: meta-ai-generation-api
+    runtime: docker
+    plan: standard
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    disk:
+      name: meta-data
+      mountPath: /app/data
+      sizeGB: 5
+    healthCheckPath: /health
