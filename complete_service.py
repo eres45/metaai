@@ -331,19 +331,35 @@ class MetaGenerationService:
                 
                 # Enter prompt using JavaScript
                 print(f"Submitting prompt: {prompt}")
-                await page.evaluate("""(prompt) => {
-                    const ta = document.querySelector('textarea[data-testid="composer-input"]');
-                    if (ta) {
-                        ta.value = prompt;
-                        ta.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                }""", prompt)
-                await asyncio.sleep(1)
                 
-                # Submit
-                await page.keyboard.press("Enter")
-                await asyncio.sleep(3)
-                print("Prompt submitted, waiting for videos...")
+                # First check if textarea exists
+                textarea = await page.query_selector('textarea[data-testid="composer-input"]')
+                print(f"[VIDEO] Textarea found: {textarea is not None}")
+                
+                if textarea:
+                    # Enter prompt using click and type instead of JavaScript
+                    print("[VIDEO] Clicking textarea...")
+                    await textarea.click()
+                    await asyncio.sleep(0.5)
+                    
+                    print("[VIDEO] Typing prompt...")
+                    await page.keyboard.type(prompt, delay=50)
+                    await asyncio.sleep(1)
+                    
+                    # Verify prompt was entered
+                    entered_text = await textarea.input_value()
+                    print(f"[VIDEO] Entered text: '{entered_text}'")
+                    
+                    # Submit
+                    print("[VIDEO] Pressing Enter...")
+                    await page.keyboard.press("Enter")
+                    await asyncio.sleep(3)
+                    print("[VIDEO] Prompt submitted!")
+                else:
+                    print("[VIDEO] ERROR: Textarea not found!")
+                    # Try alternative selectors
+                    alt_ta = await page.query_selector('textarea[placeholder*="Ask"], textarea[placeholder*="Create"]')
+                    print(f"[VIDEO] Alternative textarea found: {alt_ta is not None}")
                 
                 # Wait for videos (poll every 3 seconds for 30 seconds)
                 video_urls = []
