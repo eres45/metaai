@@ -318,11 +318,26 @@ class MetaGenerationService:
                         continue
                 
                 # Try to click on "Create" button to enter media mode
-                print("[VIDEO] Looking for Create button...")
-                create_btn = await page.query_selector('button:has-text("Create"), [role="button"]:has-text("Create")')
-                if create_btn:
-                    print("[VIDEO] Clicking Create button...")
-                    await create_btn.click()
+                print("[VIDEO] Looking for Create button via JavaScript...")
+                create_clicked = await page.evaluate("""() => {
+                    // Find button with text "Create"
+                    const buttons = Array.from(document.querySelectorAll('button, [role="button"], a'));
+                    const createBtn = buttons.find(b => b.textContent && b.textContent.trim() === 'Create');
+                    if (createBtn) {
+                        createBtn.click();
+                        return 'clicked';
+                    }
+                    // Also try finding by aria-label
+                    const altBtn = document.querySelector('[aria-label*="Create"], [title*="Create"]');
+                    if (altBtn) {
+                        altBtn.click();
+                        return 'clicked-alt';
+                    }
+                    return 'not-found';
+                }""")
+                print(f"[VIDEO] Create button result: {create_clicked}")
+                
+                if create_clicked.startswith('clicked'):
                     await asyncio.sleep(3)
                 else:
                     print("[VIDEO] Create button not found, continuing...")
