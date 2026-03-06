@@ -317,6 +317,18 @@ class MetaGenerationService:
                         print("[VIDEO] Wrong page (main chat), waiting...")
                         continue
                 
+                # IMPORTANT: Ensure no images are selected (Text-to-Video mode)
+                print("[VIDEO] Checking for selected images...")
+                selected_images = await page.query_selector_all('img[selected], img[aria-selected="true"], [data-selected="true"]')
+                print(f"[VIDEO] Found {len(selected_images)} selected images")
+                
+                # Click on empty space or deselect all images
+                if selected_images:
+                    print("[VIDEO] Deselecting images to ensure Text-to-Video mode...")
+                    # Try clicking on the prompt area to deselect
+                    await page.click('textarea[data-testid="composer-input"]')
+                    await asyncio.sleep(1)
+                
                 # Enter prompt using JavaScript
                 print(f"Submitting prompt: {prompt}")
                 await page.evaluate("""(prompt) => {
