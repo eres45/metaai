@@ -338,7 +338,15 @@ class MetaGenerationService:
                 print(f"[VIDEO] Create button result: {create_clicked}")
                 
                 if create_clicked.startswith('clicked'):
+                    print("[VIDEO] Create button clicked, waiting for page change...")
                     await asyncio.sleep(3)
+                    
+                    # Check what happened after clicking Create
+                    page_text_after = await page.evaluate("() => document.body.innerText.slice(0, 800)")
+                    print(f"[VIDEO] Page after Create click: {page_text_after[:200]}...")
+                    
+                    # Check URL
+                    print(f"[VIDEO] URL after Create: {page.url}")
                 else:
                     print("[VIDEO] Create button not found, continuing...")
                 
