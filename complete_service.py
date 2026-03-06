@@ -305,13 +305,17 @@ class MetaGenerationService:
                 print(f"[VIDEO] Final URL: {page.url}")
                 
                 # Check page loaded - wait for it to stabilize
-                for check in range(3):
+                for check in range(5):  # More checks
                     await asyncio.sleep(2)
-                    page_text = await page.evaluate("() => document.body.innerText.slice(0, 200)")
-                    print(f"[VIDEO] Page content check {check+1}: {page_text[:100]}...")
-                    if 'Quick test' in page_text or 'Create' in page_text:
-                        print("[VIDEO] Page looks correct!")
+                    page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
+                    print(f"[VIDEO] Page content check {check+1}: {page_text[:150]}...")
+                    # Must have 'Quick test' to be on correct /media page
+                    if 'Quick test' in page_text:
+                        print("[VIDEO] Page looks correct - found 'Quick test'!")
                         break
+                    elif 'New chat' in page_text and check < 4:
+                        print("[VIDEO] Wrong page (main chat), waiting...")
+                        continue
                 
                 # Enter prompt using JavaScript
                 print(f"Submitting prompt: {prompt}")
