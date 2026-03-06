@@ -317,6 +317,16 @@ class MetaGenerationService:
                         print("[VIDEO] Wrong page (main chat), waiting...")
                         continue
                 
+                # Try to click on "Create" button to enter media mode
+                print("[VIDEO] Looking for Create button...")
+                create_btn = await page.query_selector('button:has-text("Create"), [role="button"]:has-text("Create")')
+                if create_btn:
+                    print("[VIDEO] Clicking Create button...")
+                    await create_btn.click()
+                    await asyncio.sleep(3)
+                else:
+                    print("[VIDEO] Create button not found, continuing...")
+                
                 # IMPORTANT: Ensure no images are selected (Text-to-Video mode)
                 print("[VIDEO] Checking for selected images...")
                 selected_images = await page.query_selector_all('img[selected], img[aria-selected="true"], [data-selected="true"]')
