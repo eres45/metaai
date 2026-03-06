@@ -329,37 +329,25 @@ class MetaGenerationService:
                     await page.click('textarea[data-testid="composer-input"]')
                     await asyncio.sleep(1)
                 
-                # Enter prompt using JavaScript
+                # Enter prompt using JavaScript (same as working image method)
                 print(f"Submitting prompt: {prompt}")
+                await page.evaluate("""(prompt) => {
+                    const textarea = document.querySelector('textarea[data-testid="composer-input"]');
+                    if (textarea) {
+                        textarea.value = prompt;
+                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                        console.log('Prompt set');
+                    } else {
+                        console.log('Textarea not found');
+                    }
+                }""", prompt)
+                await asyncio.sleep(1)
                 
-                # First check if textarea exists
-                textarea = await page.query_selector('textarea[data-testid="composer-input"]')
-                print(f"[VIDEO] Textarea found: {textarea is not None}")
-                
-                if textarea:
-                    # Enter prompt using click and type instead of JavaScript
-                    print("[VIDEO] Clicking textarea...")
-                    await textarea.click()
-                    await asyncio.sleep(0.5)
-                    
-                    print("[VIDEO] Typing prompt...")
-                    await page.keyboard.type(prompt, delay=50)
-                    await asyncio.sleep(1)
-                    
-                    # Verify prompt was entered
-                    entered_text = await textarea.input_value()
-                    print(f"[VIDEO] Entered text: '{entered_text}'")
-                    
-                    # Submit
-                    print("[VIDEO] Pressing Enter...")
-                    await page.keyboard.press("Enter")
-                    await asyncio.sleep(3)
-                    print("[VIDEO] Prompt submitted!")
-                else:
-                    print("[VIDEO] ERROR: Textarea not found!")
-                    # Try alternative selectors
-                    alt_ta = await page.query_selector('textarea[placeholder*="Ask"], textarea[placeholder*="Create"]')
-                    print(f"[VIDEO] Alternative textarea found: {alt_ta is not None}")
+                # Submit
+                print("[VIDEO] Pressing Enter...")
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(3)
+                print("[VIDEO] Prompt submitted!")
                 
                 # Wait for videos (poll every 3 seconds for 30 seconds)
                 video_urls = []
