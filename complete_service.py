@@ -335,22 +335,31 @@ class MetaGenerationService:
                 
                 # Wait for videos (poll every 3 seconds for 30 seconds)
                 video_urls = []
+                print("[VIDEO] Starting video polling (30 seconds)...")
                 for i in range(10):
                     await asyncio.sleep(3)
+                    print(f"[VIDEO] Poll {i+1}/10 at {(i+1)*3}s...")
                     
                     # Check for videos
                     videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"]')
+                    print(f"[VIDEO] Found {len(videos)} video elements with src")
+                    
+                    # Also check for any video elements
+                    all_videos = await page.query_selector_all('video')
+                    print(f"[VIDEO] Total video elements on page: {len(all_videos)}")
                     
                     if videos:
-                        print(f"Found {len(videos)} videos after {(i+1)*3}s")
                         for vid in videos:
                             src = await vid.get_attribute('src')
                             if src and src not in video_urls:
                                 video_urls.append(src)
                                 print(f"  Video URL: {src[:60]}...")
-                        
-                        if len(video_urls) >= 4:
-                            break
+                    
+                    if len(video_urls) >= 4:
+                        print(f"[VIDEO] Got 4 videos, stopping early!")
+                        break
+                
+                print(f"[VIDEO] Polling complete. Total videos found: {len(video_urls)}")
                 
                 await context.close()
                 
