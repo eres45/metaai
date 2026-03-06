@@ -347,6 +347,26 @@ class MetaGenerationService:
                     
                     # Check URL
                     print(f"[VIDEO] URL after Create: {page.url}")
+                    
+                    # Check for modal or dropdown
+                    modals = await page.query_selector_all('[role="dialog"], [role="menu"], .modal, .dropdown, .popup')
+                    print(f"[VIDEO] Found {len(modals)} modals/dropdowns")
+                    
+                    # Check for any new elements that appeared
+                    new_content = await page.evaluate("""() => {
+                        // Look for any element with text containing "Generate", "Create", "Image", "Video"
+                        const allElements = Array.from(document.querySelectorAll('*'));
+                        const relevant = allElements.filter(el => {
+                            const text = el.textContent || '';
+                            return text.includes('Generate') || text.includes('Image') || text.includes('Video') || text.includes('Animate');
+                        });
+                        return relevant.map(el => ({
+                            tag: el.tagName,
+                            text: (el.textContent || '').slice(0, 100),
+                            visible: el.offsetParent !== null
+                        })).slice(0, 5);
+                    }""")
+                    print(f"[VIDEO] Relevant elements after Create: {new_content}")
                 else:
                     print("[VIDEO] Create button not found, continuing...")
                 
