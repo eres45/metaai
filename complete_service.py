@@ -272,10 +272,7 @@ class MetaGenerationService:
         return result
     
     async def generate_video_v2(self, prompt: str) -> Dict:
-        """
-        Generate video using working Text-to-Video method on /media page.
-        Based on Auto Meta extension workflow.
-        """
+        """Generate video using main Meta AI chat with 'Generate a video:' prefix."""
         async with async_playwright() as p:
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=self.user_data_dir,
@@ -285,23 +282,22 @@ class MetaGenerationService:
             page = await context.new_page()
             
             try:
-                # Load storage state from env if available
                 storage_json = os.environ.get("STORAGE_STATE")
                 if storage_json:
                     try:
                         storage_state = json.loads(storage_json)
                         await context.add_cookies(storage_state.get("cookies", []))
-                        print(f"[VIDEO] ✅ Loaded {len(storage_state.get('cookies', []))} cookies")
+                        print(f"[VIDEO] Loaded {len(storage_state.get('cookies', []))} cookies")
                     except Exception as e:
-                        print(f"[VIDEO] ⚠️ Cookie load failed: {e}")
+                        print(f"[VIDEO] Cookie load failed: {e}")
                 
-                # Navigate to main Meta AI page (not /media)
+                # Navigate to main Meta AI page
                 print("[VIDEO] Navigating to main Meta AI...")
                 await page.goto("https://www.meta.ai/")
                 await asyncio.sleep(3)
-                print(f"[VIDEO] Page loaded: {page.url}")
+                print(f"[VIDEO] Page: {page.url}")
                 
-                # Enter prompt for video generation
+                # Use video generation prefix
                 video_prompt = f"Generate a video: {prompt}"
                 print(f"[VIDEO] Entering: {video_prompt}")
                 await page.evaluate("""(prompt) => {
@@ -313,32 +309,20 @@ class MetaGenerationService:
                 }""", video_prompt)
                 await asyncio.sleep(1)
                 
-                # Submit
                 print("[VIDEO] Submitting...")
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(10)
                 
-                # DEBUG: Check what happened after submit
-                page_text = await page.evaluate("() => document.body.innerText.slice(0, 800)")
-                print(f"[VIDEO] Page after submit: {page_text[:200]}...")
                 print(f"[VIDEO] URL after submit: {page.url}")
                 
-                # Check if we see any generation indicators
-                has_generating = await page.evaluate("""() => {
-                    const text = document.body.innerText.toLowerCase();
-                    return text.includes('generating') || text.includes('creating') || text.includes('animate');
-                }""")
-                print(f"[VIDEO] Generation indicators found: {has_generating}")
-                
-                # Wait for videos - poll every 3s for 90s
-                print("[VIDEO] Waiting for videos (up to 90s)...")
+                # Wait for videos
+                print("[VIDEO] Waiting for videos (90s)...")
                 video_urls = []
                 
-                for i in range(30):  # 90 seconds
+                for i in range(30):
                     await asyncio.sleep(3)
                     elapsed = (i + 1) * 3
                     
-                    # Check for videos with multiple methods
                     videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"], video')
                     
                     if videos:
@@ -347,25 +331,23 @@ class MetaGenerationService:
                             src = await vid.get_attribute('src')
                             if src and src not in video_urls:
                                 video_urls.append(src)
-                                print(f"[VIDEO]   URL: {src[:60]}...")
+                                print(f"[VIDEO] URL: {src[:60]}...")
                         
                         if len(video_urls) >= 4:
                             break
                     
-                    if not videos and elapsed > 30:
-                        # Try finding URLs in page source
+                    if not videos and elapsed > 20:
                         page_html = await page.content()
                         import re
-                        video_matches = re.findall(r'https://video[^"\s]+\.mp4[^"\s]*', page_html)
-                        if video_matches:
-                            print(f"[VIDEO] [{elapsed}s] Found {len(video_matches)} video URLs in source!")
-                            for url in video_matches:
+                        matches = re.findall(r'https://video[^"\s]+\.mp4[^"\s]*', page_html)
+                        if matches:
+                            print(f"[VIDEO] [{elapsed}s] Found {len(matches)} URLs in source")
+                            for url in matches:
                                 if url not in video_urls:
                                     video_urls.append(url)
                             if len(video_urls) >= 4:
                                 break
                     
-                    # Progress update every 15s
                     if elapsed % 15 == 0 and not video_urls:
                         print(f"[VIDEO] [{elapsed}s] Still waiting...")
                 
@@ -394,7 +376,6 @@ class MetaGenerationService:
             )
             
             try:
-                # Load cookies from env
                 storage_json = os.environ.get("STORAGE_STATE")
                 if storage_json:
                     try:
@@ -405,7 +386,6 @@ class MetaGenerationService:
                 
                 page = await context.new_page()
                 
-                # Use browser fetch to download
                 result = await page.evaluate("""async (url) => {
                     try {
                         const response = await fetch(url);
@@ -424,7 +404,6 @@ class MetaGenerationService:
                 await context.close()
                 
                 if result:
-                    # Remove data:video/mp4;base64, prefix and decode
                     base64_data = result.split(',')[1] if ',' in result else result
                     import base64
                     video_bytes = base64.b64decode(base64_data)
@@ -452,16 +431,14 @@ class MetaGenerationService:
                 filename = f"video_{i+1}.mp4"
                 filepath = output_dir / filename
                 
-                # Try browser download with cookies first
                 print(f"[DOWNLOAD] Downloading video {i+1} with browser...")
                 success = await self.download_video_with_browser(url, str(filepath))
                 
                 if success:
                     downloaded.append(str(filepath))
-                    print(f"[DOWNLOAD] ✅ Video {i+1} downloaded")
+                    print(f"[DOWNLOAD] Video {i+1} downloaded")
                 else:
-                    # Fallback to direct download (will likely fail with 403)
-                    print(f"[DOWNLOAD] ⚠️ Browser failed, trying direct...")
+                    print(f"[DOWNLOAD] Browser failed, trying direct...")
                     filepath_result = self.download_file(url, output_dir, filename)
                     if filepath_result:
                         downloaded.append(filepath_result)
