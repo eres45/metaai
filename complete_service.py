@@ -386,10 +386,10 @@ class MetaGenerationService:
                     if elapsed % 15 == 0 and not video_urls:
                         print(f"[VIDEO] [{elapsed}s] Still waiting...")
                 
-                # Download videos by navigating to URL with download handling
+                # Download videos by navigating to URL
                 downloaded_files = []
                 if video_urls:
-                    print(f"[VIDEO] Downloading {len(video_urls)} videos via page navigation...")
+                    print(f"[VIDEO] Downloading {len(video_urls)} videos via navigation...")
                     output_dir = self.downloads_dir / "videos"
                     output_dir.mkdir(parents=True, exist_ok=True)
                     
@@ -400,26 +400,30 @@ class MetaGenerationService:
                             
                             print(f"[VIDEO] Downloading {filename}...")
                             
-                            # Setup download handler
-                            download_triggered = []
-                            async def handle_download(download):
-                                print(f"[VIDEO] Download started: {download.suggested_filename}")
-                                await download.save_as(filepath)
-                                download_triggered.append(True)
-                                print(f"[VIDEO] ✅ Downloaded via handler: {filename}")
+                            # Navigate to video URL - browser will show video
+                            await page.goto(url, wait_until="networkidle", timeout=60000)
                             
-                            page.on("download", handle_download)
+                            # Get page content (for video it might be binary or player)
+                            # Try to get the video element src
+                            video_src = await page.evaluate("""() => {
+                                const video = document.querySelector('video');
+                                return video ? video.src : null;
+                            }""")
                             
-                            # Navigate to video URL
-                            await page.goto(url, timeout=30000)
-                            await asyncio.sleep(2)
-                            
-                            page.remove_listener("download", handle_download)
-                            
-                            if filepath.exists() and filepath.stat().st_size > 0:
-                                downloaded_files.append(str(filepath))
-                            elif not download_triggered:
-                                print(f"[VIDEO] ❌ Download {i+1}: no download triggered")
+                            if video_src:
+                                print(f"[VIDEO] Found video src: {video_src[:60]}...")
+                                # Use request to get the actual video
+                                response = await context.request.get(video_src)
+                                if response.status == 200:
+                                    body = await response.body()
+                                    with open(filepath, 'wb') as f:
+                                        f.write(body)
+                                    downloaded_files.append(str(filepath))
+                                    print(f"[VIDEO] ✅ Downloaded: {filename} ({len(body)} bytes)")
+                                else:
+                                    print(f"[VIDEO] ❌ HTTP {response.status}")
+                            else:
+                                print(f"[VIDEO] ❌ No video element found")
                                 
                         except Exception as e:
                             print(f"[VIDEO] ❌ Download {i+1} error: {e}")
