@@ -416,16 +416,20 @@ class MetaGenerationService:
                 if len(video_urls) < 4:
                     print(f"[VIDEO] Final check: searching page source... (have {len(video_urls)})")
                     page_html = await page.content()
+                    
+                    # DEBUG: Save HTML for analysis
+                    debug_html_path = output_dir / "debug_page.html"
+                    with open(debug_html_path, 'w', encoding='utf-8') as f:
+                        f.write(page_html)
+                    print(f"[VIDEO] Saved HTML to {debug_html_path}")
+                    
                     import re
-                    # Look for fbcdn video URLs
-                    fbcdn_matches = re.findall(r'https://[^"\s<>]*video[^"\s<>]*\.mp4[^"\s<>]*', page_html)
-                    if fbcdn_matches:
-                        print(f"[VIDEO] Found {len(fbcdn_matches)} video URLs in source!")
-                        for url in fbcdn_matches:
-                            clean_url = url.replace('\\u0026', '&').replace('\\', '')
-                            if clean_url not in video_urls and 'fbcdn.net' in clean_url:
-                                video_urls.append(clean_url)
-                                print(f"[VIDEO]   URL: {clean_url[:80]}...")
+                    # Look for all https URLs containing video or mp4
+                    all_urls = re.findall(r'https://[^"\s<>]+', page_html)
+                    video_urls_found = [u for u in all_urls if 'video' in u.lower() or '.mp4' in u.lower()]
+                    print(f"[VIDEO] All video-like URLs found: {len(video_urls_found)}")
+                    for i, url in enumerate(video_urls_found[:10]):
+                        print(f"[VIDEO]   {i+1}: {url[:100]}...")
                 
                 # Download videos by navigating to URL and return base64
                 video_data_list = []
