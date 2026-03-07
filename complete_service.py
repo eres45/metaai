@@ -396,31 +396,40 @@ class MetaGenerationService:
                     output_dir.mkdir(parents=True, exist_ok=True)
                     
                     # Get cookies from storage for download (re-read from env)
-                    cookies = {}
+                    import requests
+                    session = requests.Session()
                     storage_json_refresh = os.environ.get("STORAGE_STATE")
                     if storage_json_refresh:
                         try:
                             storage_state = json.loads(storage_json_refresh)
                             for cookie in storage_state.get("cookies", []):
-                                cookies[cookie["name"]] = cookie["value"]
-                            print(f"[VIDEO] Using {len(cookies)} cookies for download")
+                                # Add cookie with exact attributes
+                                session.cookies.set(
+                                    cookie["name"],
+                                    cookie["value"],
+                                    domain=cookie.get("domain", ""),
+                                    path=cookie.get("path", "/")
+                                )
+                            print(f"[VIDEO] Using {len(storage_state.get('cookies', []))} cookies for download")
                         except Exception as e:
                             print(f"[VIDEO] Cookie parse error: {e}")
+                    
+                    # Add proper headers to mimic browser
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Referer': 'https://www.meta.ai/',
+                        'Accept': '*/*',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                    }
                     
                     for i, url in enumerate(video_urls[:4]):
                         try:
                             filename = f"video_{i+1}.mp4"
                             filepath = output_dir / filename
                             
-                            # Download with cookies
-                            import requests
-                            session = requests.Session()
-                            for name, value in cookies.items():
-                                session.cookies.set(name, value)
-                            
                             print(f"[VIDEO] Downloading {filename}...")
-                            response = session.get(url, stream=True, timeout=120)
-                            print(f"[VIDEO] Response status: {response.status_code}")
+                            response = session.get(url, headers=headers, stream=True, timeout=120)
+                            print(f"[VIDEO] Response status: {response.status_code}, Cookies sent: {len(session.cookies)})")
                             response.raise_for_status()
                             
                             with open(filepath, 'wb') as f:
