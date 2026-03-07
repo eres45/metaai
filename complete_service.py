@@ -296,6 +296,10 @@ class MetaGenerationService:
                         print(f"[VIDEO] ⚠️ Cookie load failed: {e}")
                 
                 # Navigate to /media page
+                # Define output_dir early for debug files
+                output_dir = self.downloads_dir / "videos"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
                 print("[VIDEO] Navigating to /media...")
                 await page.goto("https://www.meta.ai/media")
                 await asyncio.sleep(5)  # Wait for full load
