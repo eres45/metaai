@@ -386,10 +386,10 @@ class MetaGenerationService:
                     if elapsed % 15 == 0 and not video_urls:
                         print(f"[VIDEO] [{elapsed}s] Still waiting...")
                 
-                # Download videos using browser BEFORE closing context
+                # Download videos using Playwright's request (uses browser's network stack)
                 downloaded_files = []
                 if video_urls:
-                    print(f"[VIDEO] Downloading {len(video_urls)} videos via browser...")
+                    print(f"[VIDEO] Downloading {len(video_urls)} videos via Playwright...")
                     output_dir = self.downloads_dir / "videos"
                     output_dir.mkdir(parents=True, exist_ok=True)
                     
@@ -398,22 +398,21 @@ class MetaGenerationService:
                             filename = f"video_{i+1}.mp4"
                             filepath = output_dir / filename
                             
-                            # Use browser to download via fetch
-                            print(f"[VIDEO] Browser downloading {filename}...")
-                            video_data = await page.evaluate("""async (url) => {
-                                const response = await fetch(url);
-                                if (!response.ok) return null;
-                                const blob = await response.blob();
-                                return new Uint8Array(await blob.arrayBuffer());
-                            }""", url)
+                            # Use Playwright's request API (has browser cookies)
+                            print(f"[VIDEO] Downloading {filename}...")
+                            response = await context.request.get(url)
+                            print(f"[VIDEO] Response status: {response.status}")
                             
-                            if video_data:
+                            if response.status == 200:
+                                # Save body to file
+                                body = await response.body()
                                 with open(filepath, 'wb') as f:
-                                    f.write(bytes(video_data))
+                                    f.write(body)
                                 downloaded_files.append(str(filepath))
-                                print(f"[VIDEO] ✅ Downloaded: {filename} ({len(video_data)} bytes)")
+                                print(f"[VIDEO] ✅ Downloaded: {filename} ({len(body)} bytes)")
                             else:
-                                print(f"[VIDEO] ❌ Download {i+1} failed via browser")
+                                print(f"[VIDEO] ❌ Download {i+1} failed: HTTP {response.status}")
+                                
                         except Exception as e:
                             print(f"[VIDEO] ❌ Download {i+1} error: {e}")
                 
