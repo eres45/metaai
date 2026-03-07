@@ -285,11 +285,42 @@ class MetaGenerationService:
             page = await context.new_page()
             
             try:
-                # Navigate to /media page
-                await page.goto("https://www.meta.ai/media")
-                await asyncio.sleep(3)
+                # Load storage state from env if available
+                storage_json = os.environ.get("STORAGE_STATE")
+                if storage_json:
+                    try:
+                        storage_state = json.loads(storage_json)
+                        await context.add_cookies(storage_state.get("cookies", []))
+                        print(f"[VIDEO] ✅ Loaded {len(storage_state.get('cookies', []))} cookies")
+                    except Exception as e:
+                        print(f"[VIDEO] ⚠️ Cookie load failed: {e}")
                 
-                # Enter prompt using JavaScript
+                # Navigate to /media page
+                print("[VIDEO] Navigating to /media...")
+                await page.goto("https://www.meta.ai/media")
+                await asyncio.sleep(5)  # Wait for full load
+                print(f"[VIDEO] Page loaded: {page.url}")
+                
+                # Check if any images are selected (Text-to-Video needs 0 selected)
+                selected_count = await page.evaluate("""() => {
+                    const text = document.body.innerText;
+                    const match = text.match(/Selected:\\s*(\\d+)/);
+                    return match ? parseInt(match[1]) : 0;
+                }""")
+                print(f"[VIDEO] Images selected: {selected_count}")
+                
+                if selected_count > 0:
+                    print("[VIDEO] Deselecting images...")
+                    await page.evaluate("""() => {
+                        const clearBtn = Array.from(document.querySelectorAll('button')).find(
+                            b => b.textContent && b.textContent.includes('Clear')
+                        );
+                        if (clearBtn) clearBtn.click();
+                    }""")
+                    await asyncio.sleep(2)
+                
+                # Enter prompt
+                print(f"[VIDEO] Entering prompt: {prompt}")
                 await page.evaluate("""(prompt) => {
                     const ta = document.querySelector('textarea[data-testid="composer-input"]');
                     if (ta) {
@@ -300,31 +331,39 @@ class MetaGenerationService:
                 await asyncio.sleep(1)
                 
                 # Submit
+                print("[VIDEO] Submitting...")
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
                 
-                # Wait for videos (poll every 3 seconds for 90 seconds)
+                # Wait for videos - poll every 3s for 90s
+                print("[VIDEO] Waiting for videos (up to 90s)...")
                 video_urls = []
-                for i in range(30):  # 90 seconds total
+                
+                for i in range(30):  # 90 seconds
                     await asyncio.sleep(3)
+                    elapsed = (i + 1) * 3
                     
-                    # Check for videos
+                    # Check for videos with src
                     videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"]')
                     
                     if videos:
+                        print(f"[VIDEO] [{elapsed}s] Found {len(videos)} videos!")
                         for vid in videos:
                             src = await vid.get_attribute('src')
                             if src and src not in video_urls:
                                 video_urls.append(src)
+                                print(f"[VIDEO]   URL: {src[:60]}...")
                         
                         if len(video_urls) >= 4:
                             break
                     
-                    if (i + 1) % 10 == 0:
-                        print(f"[VIDEO] Poll {i+1}/30 - still waiting...")
+                    # Progress update every 15s
+                    if elapsed % 15 == 0:
+                        print(f"[VIDEO] [{elapsed}s] Still waiting...")
                 
                 await context.close()
                 
+                print(f"[VIDEO] Complete: {len(video_urls)} videos found")
                 return {
                     "success": len(video_urls) > 0,
                     "prompt": prompt,
@@ -333,6 +372,7 @@ class MetaGenerationService:
                 }
                 
             except Exception as e:
+                print(f"[VIDEO] Error: {e}")
                 await context.close()
                 return {"success": False, "error": str(e)}
     
