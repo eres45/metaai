@@ -296,30 +296,28 @@ class MetaGenerationService:
                         print(f"[VIDEO] ⚠️ Cookie load failed: {e}")
                 
                 # Navigate to /media page
-                # Define output_dir early for debug files
-                output_dir = self.downloads_dir / "videos"
-                output_dir.mkdir(parents=True, exist_ok=True)
-                
-                print("[VIDEO] Navigating to main Meta AI...")
-                await page.goto("https://www.meta.ai/")
-                await asyncio.sleep(3)
-                
-                # Look for and click "New chat" or similar to start fresh
-                print("[VIDEO] Starting new chat...")
-                await page.evaluate("""() => {
-                    // Try to find new chat button
-                    const newChatBtn = Array.from(document.querySelectorAll('button, a')).find(
-                        el => el.textContent && el.textContent.toLowerCase().includes('new chat')
-                    );
-                    if (newChatBtn) {
-                        newChatBtn.click();
-                        return true;
-                    }
-                    return false;
-                }""")
-                await asyncio.sleep(2)
-                
+                print("[VIDEO] Navigating to /media...")
+                await page.goto("https://www.meta.ai/media")
+                await asyncio.sleep(5)  # Wait for full load
                 print(f"[VIDEO] Page loaded: {page.url}")
+                
+                # Check if any images are selected (Text-to-Video needs 0 selected)
+                selected_count = await page.evaluate("""() => {
+                    const text = document.body.innerText;
+                    const match = text.match(/Selected:\\s*(\\d+)/);
+                    return match ? parseInt(match[1]) : 0;
+                }""")
+                print(f"[VIDEO] Images selected: {selected_count}")
+                
+                if selected_count > 0:
+                    print("[VIDEO] Deselecting images...")
+                    await page.evaluate("""() => {
+                        const clearBtn = Array.from(document.querySelectorAll('button')).find(
+                            b => b.textContent && b.textContent.includes('Clear')
+                        );
+                        if (clearBtn) clearBtn.click();
+                    }""")
+                    await asyncio.sleep(2)
                 
                 # Enter prompt
                 print(f"[VIDEO] Entering prompt: {prompt}")
@@ -349,22 +347,6 @@ class MetaGenerationService:
                 }""")
                 print(f"[VIDEO] Generation indicators found: {has_generating}")
                 
-                # DEBUG: Take screenshot and check page content
-                await page.screenshot(path=str(output_dir / "debug_after_submit.png"))
-                print(f"[VIDEO] Screenshot saved")
-                
-                # Check what's on the page
-                page_text_check = await page.evaluate("""() => {
-                    const text = document.body.innerText;
-                    // Look for video-related terms
-                    return {
-                        hasVideo: text.includes('video') || text.includes('Video'),
-                        hasDancing: text.includes('Dancing'),
-                        textPreview: text.slice(0, 500)
-                    };
-                }""")
-                print(f"[VIDEO] Page check: {page_text_check}")
-                
                 # Wait for videos - poll every 3s for 90s
                 print("[VIDEO] Waiting for videos (up to 90s)...")
                 video_urls = []
@@ -373,120 +355,44 @@ class MetaGenerationService:
                     await asyncio.sleep(3)
                     elapsed = (i + 1) * 3
                     
-                    # Get page HTML for source analysis
-                    page_html = await page.content()
+                    # Check for videos with multiple methods
+                    videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"], video')
                     
-                    # Search for fbcdn video URLs in page source (most reliable)
-                    import re
-                    # Look for all fbcdn.net URLs with video
-                    fbcdn_pattern = r'https://[^"\s<>]+fbcdn\.net[^"\s<>]*\.mp4[^"\s<>]*'
-                    matches = re.findall(fbcdn_pattern, page_html)
-                    
-                    if matches and i % 5 == 0:  # Log every 15s if matches found
-                        print(f"[VIDEO] [{elapsed}s] Raw matches: {len(matches)}")
-                    
-                    for url in matches:
-                        # Clean up URL (handle escaped characters)
-                        clean_url = url.replace('\\u0026', '&').replace('\\', '').replace('&amp;', '&')
-                        if clean_url not in video_urls and 'fbcdn.net' in clean_url:
-                            video_urls.append(clean_url)
-                            print(f"[VIDEO] [{elapsed}s] Found URL: {clean_url[:80]}...")
-                    
-                    if len(video_urls) >= 4:
-                        print(f"[VIDEO] Got {len(video_urls)} URLs, breaking early")
-                        break
-                    
-                    # Also check for video elements
-                    videos = await page.query_selector_all('video')
                     if videos:
-                        print(f"[VIDEO] [{elapsed}s] Found {len(videos)} video elements")
+                        print(f"[VIDEO] [{elapsed}s] Found {len(videos)} videos!")
                         for vid in videos:
                             src = await vid.get_attribute('src')
                             if src and src not in video_urls:
                                 video_urls.append(src)
-                                print(f"[VIDEO]   Video src: {src[:60]}...")
+                                print(f"[VIDEO]   URL: {src[:60]}...")
+                        
+                        if len(video_urls) >= 4:
+                            break
+                    
+                    if not videos and elapsed > 30:
+                        # Try finding URLs in page source
+                        page_html = await page.content()
+                        import re
+                        video_matches = re.findall(r'https://video[^"\s]+\.mp4[^"\s]*', page_html)
+                        if video_matches:
+                            print(f"[VIDEO] [{elapsed}s] Found {len(video_matches)} video URLs in source!")
+                            for url in video_matches:
+                                if url not in video_urls:
+                                    video_urls.append(url)
+                            if len(video_urls) >= 4:
+                                break
                     
                     # Progress update every 15s
-                    if elapsed % 15 == 0 and len(video_urls) < 4:
-                        # Count "Dancing" or prompt words in page to see if generating
-                        page_text = await page.evaluate("() => document.body.innerText")
-                        prompt_words = prompt.lower().split()[:2]  # First 2 words of prompt
-                        found_words = sum(1 for w in prompt_words if w in page_text.lower())
-                        print(f"[VIDEO] [{elapsed}s] Waiting... (found {len(video_urls)} URLs, {found_words}/{len(prompt_words)} prompt words in page)")
-                
-                # Final check: look for video URLs in page source
-                if len(video_urls) < 4:
-                    print(f"[VIDEO] Final check: searching page source... (have {len(video_urls)})")
-                    page_html = await page.content()
-                    
-                    # DEBUG: Save HTML for analysis
-                    debug_html_path = output_dir / "debug_page.html"
-                    with open(debug_html_path, 'w', encoding='utf-8') as f:
-                        f.write(page_html)
-                    print(f"[VIDEO] Saved HTML to {debug_html_path}")
-                    
-                    import re
-                    # Look for all https URLs containing video or mp4
-                    all_urls = re.findall(r'https://[^"\s<>]+', page_html)
-                    video_urls_found = [u for u in all_urls if 'video' in u.lower() or '.mp4' in u.lower()]
-                    print(f"[VIDEO] All video-like URLs found: {len(video_urls_found)}")
-                    for i, url in enumerate(video_urls_found[:10]):
-                        print(f"[VIDEO]   {i+1}: {url[:100]}...")
-                
-                # Download videos by navigating to URL and return base64
-                video_data_list = []
-                if video_urls:
-                    print(f"[VIDEO] Downloading {len(video_urls)} videos via base64...")
-                    
-                    for i, url in enumerate(video_urls[:4]):
-                        try:
-                            print(f"[VIDEO] Downloading video {i+1}...")
-                            
-                            # Navigate to video URL
-                            await page.goto(url, wait_until="networkidle", timeout=60000)
-                            
-                            # Get video element and download via fetch
-                            video_base64 = await page.evaluate("""async () => {
-                                const video = document.querySelector('video');
-                                if (!video || !video.src) return null;
-                                
-                                try {
-                                    const response = await fetch(video.src);
-                                    const blob = await response.blob();
-                                    return new Promise((resolve) => {
-                                        const reader = new FileReader();
-                                        reader.onloadend = () => resolve(reader.result);
-                                        reader.readAsDataURL(blob);
-                                    });
-                                } catch (e) {
-                                    return null;
-                                }
-                            }""")
-                            
-                            if video_base64:
-                                # Remove data:video/mp4;base64, prefix
-                                base64_data = video_base64.split(',')[1] if ',' in video_base64 else video_base64
-                                video_data_list.append({
-                                    "index": i + 1,
-                                    "base64": base64_data,
-                                    "size": len(base64_data)
-                                })
-                                print(f"[VIDEO] ✅ Video {i+1} encoded ({len(base64_data):,} chars)")
-                            else:
-                                print(f"[VIDEO] ❌ Video {i+1} failed to encode")
-                                
-                        except Exception as e:
-                            print(f"[VIDEO] ❌ Video {i+1} error: {e}")
+                    if elapsed % 15 == 0 and not video_urls:
+                        print(f"[VIDEO] [{elapsed}s] Still waiting...")
                 
                 await context.close()
                 
-                print(f"[VIDEO] Complete: {len(video_urls)} videos found, {len(video_data_list)} encoded")
+                print(f"[VIDEO] Complete: {len(video_urls)} videos found")
                 return {
                     "success": len(video_urls) > 0,
                     "prompt": prompt,
                     "video_urls": video_urls[:4],
-                    "videos_base64": video_data_list,
-                    "download_instruction": "Decode base64: echo 'BASE64_DATA' | base64 -d > video.mp4",
                     "count": len(video_urls)
                 }
                 
@@ -495,19 +401,87 @@ class MetaGenerationService:
                 await context.close()
                 return {"success": False, "error": str(e)}
     
+    async def download_video_with_browser(self, video_url: str, output_path: str) -> bool:
+        """Download video using browser fetch with session cookies."""
+        async with async_playwright() as p:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=self.user_data_dir,
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
+            
+            try:
+                # Load cookies from env
+                storage_json = os.environ.get("STORAGE_STATE")
+                if storage_json:
+                    try:
+                        storage_state = json.loads(storage_json)
+                        await context.add_cookies(storage_state.get("cookies", []))
+                    except:
+                        pass
+                
+                page = await context.new_page()
+                
+                # Use browser fetch to download
+                result = await page.evaluate("""async (url) => {
+                    try {
+                        const response = await fetch(url);
+                        if (!response.ok) return null;
+                        const blob = await response.blob();
+                        return new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+                    } catch (e) {
+                        return null;
+                    }
+                }""", video_url)
+                
+                await context.close()
+                
+                if result:
+                    # Remove data:video/mp4;base64, prefix and decode
+                    base64_data = result.split(',')[1] if ',' in result else result
+                    import base64
+                    video_bytes = base64.b64decode(base64_data)
+                    with open(output_path, 'wb') as f:
+                        f.write(video_bytes)
+                    return True
+                
+                return False
+                
+            except Exception as e:
+                print(f"Browser download failed: {e}")
+                await context.close()
+                return False
+    
     async def generate_and_download_video_v2(self, prompt: str) -> Dict:
-        """Generate video using v2 method and download."""
+        """Generate video using v2 method and download with browser cookies."""
         result = await self.generate_video_v2(prompt)
         
         output_dir = self.downloads_dir / "videos"
+        output_dir.mkdir(parents=True, exist_ok=True)
         downloaded = []
         
         if result.get("success") and result.get("video_urls"):
             for i, url in enumerate(result["video_urls"]):
                 filename = f"video_{i+1}.mp4"
-                filepath = self.download_file(url, output_dir, filename)
-                if filepath:
-                    downloaded.append(filepath)
+                filepath = output_dir / filename
+                
+                # Try browser download with cookies first
+                print(f"[DOWNLOAD] Downloading video {i+1} with browser...")
+                success = await self.download_video_with_browser(url, str(filepath))
+                
+                if success:
+                    downloaded.append(str(filepath))
+                    print(f"[DOWNLOAD] ✅ Video {i+1} downloaded")
+                else:
+                    # Fallback to direct download (will likely fail with 403)
+                    print(f"[DOWNLOAD] ⚠️ Browser failed, trying direct...")
+                    filepath_result = self.download_file(url, output_dir, filename)
+                    if filepath_result:
+                        downloaded.append(filepath_result)
         
         result["downloaded_files"] = downloaded
         result["download_dir"] = str(output_dir)
