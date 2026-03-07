@@ -333,7 +333,19 @@ class MetaGenerationService:
                 # Submit
                 print("[VIDEO] Submitting...")
                 await page.keyboard.press("Enter")
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
+                
+                # DEBUG: Check what happened after submit
+                page_text = await page.evaluate("() => document.body.innerText.slice(0, 800)")
+                print(f"[VIDEO] Page after submit: {page_text[:200]}...")
+                print(f"[VIDEO] URL after submit: {page.url}")
+                
+                # Check if we see any generation indicators
+                has_generating = await page.evaluate("""() => {
+                    const text = document.body.innerText.toLowerCase();
+                    return text.includes('generating') || text.includes('creating') || text.includes('animate');
+                }""")
+                print(f"[VIDEO] Generation indicators found: {has_generating}")
                 
                 # Wait for videos - poll every 3s for 90s
                 print("[VIDEO] Waiting for videos (up to 90s)...")
