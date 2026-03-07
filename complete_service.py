@@ -341,32 +341,23 @@ class MetaGenerationService:
                     print("[VIDEO] Create button clicked, waiting for page change...")
                     await asyncio.sleep(3)
                     
-                    # Check what happened after clicking Create
-                    page_text_after = await page.evaluate("() => document.body.innerText.slice(0, 800)")
-                    print(f"[VIDEO] Page after Create click: {page_text_after[:200]}...")
-                    
-                    # Check URL
-                    print(f"[VIDEO] URL after Create: {page.url}")
-                    
-                    # Check for modal or dropdown
-                    modals = await page.query_selector_all('[role="dialog"], [role="menu"], .modal, .dropdown, .popup')
-                    print(f"[VIDEO] Found {len(modals)} modals/dropdowns")
-                    
-                    # Check for any new elements that appeared
-                    new_content = await page.evaluate("""() => {
-                        // Look for any element with text containing "Generate", "Create", "Image", "Video"
-                        const allElements = Array.from(document.querySelectorAll('*'));
-                        const relevant = allElements.filter(el => {
-                            const text = el.textContent || '';
-                            return text.includes('Generate') || text.includes('Image') || text.includes('Video') || text.includes('Animate');
-                        });
-                        return relevant.map(el => ({
-                            tag: el.tagName,
-                            text: (el.textContent || '').slice(0, 100),
-                            visible: el.offsetParent !== null
-                        })).slice(0, 5);
+                    # NOW CLICK ON "AI Image & Video Generator" link
+                    print("[VIDEO] Looking for AI Image & Video Generator link...")
+                    video_link_clicked = await page.evaluate("""() => {
+                        const links = Array.from(document.querySelectorAll('a'));
+                        const videoLink = links.find(a => 
+                            a.textContent && a.textContent.includes('Video')
+                        );
+                        if (videoLink) {
+                            videoLink.click();
+                            return 'clicked: ' + videoLink.textContent.trim();
+                        }
+                        return 'not-found';
                     }""")
-                    print(f"[VIDEO] Relevant elements after Create: {new_content}")
+                    print(f"[VIDEO] Video link click result: {video_link_clicked}")
+                    
+                    if video_link_clicked.startswith('clicked'):
+                        await asyncio.sleep(3)
                 else:
                     print("[VIDEO] Create button not found, continuing...")
                 
