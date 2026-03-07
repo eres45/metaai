@@ -376,16 +376,19 @@ class MetaGenerationService:
                     
                     # Search for fbcdn video URLs in page source (most reliable)
                     import re
-                    # Look for all video-sin or fbcdn video URLs
-                    fbcdn_pattern = r'https://video[^"\s<>]+\.mp4[^"\s<>]*'
+                    # Look for all fbcdn.net URLs with video
+                    fbcdn_pattern = r'https://[^"\s<>]+fbcdn\.net[^"\s<>]*\.mp4[^"\s<>]*'
                     matches = re.findall(fbcdn_pattern, page_html)
+                    
+                    if matches and i % 5 == 0:  # Log every 15s if matches found
+                        print(f"[VIDEO] [{elapsed}s] Raw matches: {len(matches)}")
                     
                     for url in matches:
                         # Clean up URL (handle escaped characters)
-                        clean_url = url.replace('\\u0026', '&').replace('\\', '')
+                        clean_url = url.replace('\\u0026', '&').replace('\\', '').replace('&amp;', '&')
                         if clean_url not in video_urls and 'fbcdn.net' in clean_url:
                             video_urls.append(clean_url)
-                            print(f"[VIDEO] [{elapsed}s] Found URL: {clean_url[:60]}...")
+                            print(f"[VIDEO] [{elapsed}s] Found URL: {clean_url[:80]}...")
                     
                     if len(video_urls) >= 4:
                         print(f"[VIDEO] Got {len(video_urls)} URLs, breaking early")
