@@ -372,7 +372,16 @@ class MetaGenerationService:
                     elapsed = (i + 1) * 3
                     
                     # Check for videos with multiple methods
+                    # 1. Direct video elements
                     videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"], video')
+                    
+                    # 2. Videos in assistant messages (the generated response)
+                    if not videos:
+                        videos = await page.query_selector_all('[data-testid="assistant-message"] video, .assistant-message video, [role="assistant"] video')
+                    
+                    # 3. Any video element on page
+                    if not videos:
+                        videos = await page.query_selector_all('video')
                     
                     if videos:
                         print(f"[VIDEO] [{elapsed}s] Found {len(videos)} videos!")
@@ -384,6 +393,19 @@ class MetaGenerationService:
                         
                         if len(video_urls) >= 4:
                             break
+                    
+                    # Check for video cards/media containers
+                    media_containers = await page.query_selector_all('[data-testid*="media"], .media-container, .video-card')
+                    if media_containers:
+                        print(f"[VIDEO] [{elapsed}s] Found {len(media_containers)} media containers")
+                        for container in media_containers:
+                            # Check for video inside
+                            vid_in_container = await container.query_selector('video')
+                            if vid_in_container:
+                                src = await vid_in_container.get_attribute('src')
+                                if src and src not in video_urls:
+                                    video_urls.append(src)
+                                    print(f"[VIDEO]   Container video: {src[:60]}...")
                     
                     if not videos and elapsed > 30:
                         # Try finding URLs in page source
