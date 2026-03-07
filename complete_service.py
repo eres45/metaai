@@ -66,16 +66,16 @@ class MetaGenerationService:
                 except Exception as e:
                     print(f"⚠️ Failed to load storage state: {e}")
             
-            # Navigate to /media page (works better than main page)
-            await page.goto("https://www.meta.ai/media")
-            await asyncio.sleep(3)
+            # Navigate to site
+            await page.goto("https://www.meta.ai")
+            await asyncio.sleep(2)
             
             try:
                 print(f"Page loaded: {page.url}")
                 
-                # Check page loaded properly
+                # Check if logged in
                 page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
-                print(f"Page content preview: {page_text[:200]}...")
+                print(f"Page content preview: {page_text}")
                 
                 # Submit prompt
                 print(f"Submitting prompt: {prompt}")
@@ -102,12 +102,14 @@ class MetaGenerationService:
                 print(f"Found {len(images)} images")
                 image_urls = []
                 
-                for i, img in enumerate(images[:num_images]):
+                for i, img in enumerate(images[:num_images * 3]):  # Check more images
                     src = await img.get_attribute('src')
-                    print(f"Image {i}: {src[:80] if src else 'None'}...")
-                    # Filter: must be fbcdn, NOT a UI icon (rsrc.php), and not already added
+                    print(f"Image {i}: {src[:50] if src else 'None'}...")
+                    # Filter: must have fbcdn but NOT rsrc.php (logos)
                     if src and src not in image_urls and 'fbcdn' in src and 'rsrc.php' not in src:
                         image_urls.append(src)
+                        if len(image_urls) >= num_images:
+                            break
                 
                 await context.close()
                 
@@ -274,86 +276,52 @@ class MetaGenerationService:
         Generate video using working Text-to-Video method on /media page.
         Based on Auto Meta extension workflow.
         """
-        print(f"\n[VIDEO] Starting video generation for: {prompt}")
-        
         async with async_playwright() as p:
-            print("[VIDEO] Playwright initialized")
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=self.user_data_dir,
                 headless=True,
                 args=["--disable-blink-features=AutomationControlled"]
             )
-            print("[VIDEO] Browser context created")
             page = await context.new_page()
-            print("[VIDEO] New page created")
             
             try:
-                # Load storage state from env if available
-                storage_json = os.environ.get("STORAGE_STATE")
-                if storage_json:
-                    try:
-                        storage_state = json.loads(storage_json)
-                        await context.add_cookies(storage_state.get("cookies", []))
-                        print(f"✅ Loaded {len(storage_state.get('cookies', []))} cookies from storage state")
-                    except Exception as e:
-                        print(f"⚠️ Failed to load storage state: {e}")
-                
                 # Navigate to /media page
-                print(f"[VIDEO] Navigating to /media page...")
                 await page.goto("https://www.meta.ai/media")
-                await asyncio.sleep(3)  # Same as image method
-                print(f"[VIDEO] Page loaded: {page.url}")
+                await asyncio.sleep(3)
                 
-                # Check page loaded
-                page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
-                print(f"[VIDEO] Page content: {page_text[:200]}...")
-                
-                # Submit prompt - SAME as working image method
-                print(f"[VIDEO] Submitting prompt: {prompt}")
+                # Enter prompt using JavaScript
                 await page.evaluate("""(prompt) => {
-                    const textarea = document.querySelector('textarea[data-testid="composer-input"]');
-                    if (textarea) {
-                        textarea.value = prompt;
-                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                        console.log('Prompt set');
-                    } else {
-                        console.log('Textarea not found');
+                    const ta = document.querySelector('textarea[data-testid="composer-input"]');
+                    if (ta) {
+                        ta.value = prompt;
+                        ta.dispatchEvent(new Event('input', { bubbles: true }));
                     }
                 }""", prompt)
+                await asyncio.sleep(1)
+                
+                # Submit
                 await page.keyboard.press("Enter")
-                print("[VIDEO] Prompt submitted")
+                await asyncio.sleep(3)
                 
-                # Wait longer for video generation (videos take more time)
-                print("[VIDEO] Waiting 45s for video generation...")
-                await asyncio.sleep(45)
-                
-                # Wait for videos (poll every 3 seconds for 30 seconds)
+                # Wait for videos (poll every 3 seconds for 90 seconds)
                 video_urls = []
-                print("[VIDEO] Starting video polling (30 seconds)...")
-                for i in range(10):
+                for i in range(30):  # 90 seconds total
                     await asyncio.sleep(3)
-                    print(f"[VIDEO] Poll {i+1}/10 at {(i+1)*3}s...")
                     
                     # Check for videos
                     videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"]')
-                    print(f"[VIDEO] Found {len(videos)} video elements with src")
-                    
-                    # Also check for any video elements
-                    all_videos = await page.query_selector_all('video')
-                    print(f"[VIDEO] Total video elements on page: {len(all_videos)}")
                     
                     if videos:
                         for vid in videos:
                             src = await vid.get_attribute('src')
                             if src and src not in video_urls:
                                 video_urls.append(src)
-                                print(f"  Video URL: {src[:60]}...")
+                        
+                        if len(video_urls) >= 4:
+                            break
                     
-                    if len(video_urls) >= 4:
-                        print(f"[VIDEO] Got 4 videos, stopping early!")
-                        break
-                
-                print(f"[VIDEO] Polling complete. Total videos found: {len(video_urls)}")
+                    if (i + 1) % 10 == 0:
+                        print(f"[VIDEO] Poll {i+1}/30 - still waiting...")
                 
                 await context.close()
                 
@@ -365,9 +333,6 @@ class MetaGenerationService:
                 }
                 
             except Exception as e:
-                print(f"❌ Video generation error: {e}")
-                import traceback
-                traceback.print_exc()
                 await context.close()
                 return {"success": False, "error": str(e)}
     
