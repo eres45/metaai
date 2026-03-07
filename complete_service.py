@@ -386,10 +386,10 @@ class MetaGenerationService:
                     if elapsed % 15 == 0 and not video_urls:
                         print(f"[VIDEO] [{elapsed}s] Still waiting...")
                 
-                # Download videos using Playwright's request (uses browser's network stack)
+                # Download videos by navigating to URL with download handling
                 downloaded_files = []
                 if video_urls:
-                    print(f"[VIDEO] Downloading {len(video_urls)} videos via Playwright...")
+                    print(f"[VIDEO] Downloading {len(video_urls)} videos via page navigation...")
                     output_dir = self.downloads_dir / "videos"
                     output_dir.mkdir(parents=True, exist_ok=True)
                     
@@ -398,20 +398,28 @@ class MetaGenerationService:
                             filename = f"video_{i+1}.mp4"
                             filepath = output_dir / filename
                             
-                            # Use Playwright's request API (has browser cookies)
                             print(f"[VIDEO] Downloading {filename}...")
-                            response = await context.request.get(url)
-                            print(f"[VIDEO] Response status: {response.status}")
                             
-                            if response.status == 200:
-                                # Save body to file
-                                body = await response.body()
-                                with open(filepath, 'wb') as f:
-                                    f.write(body)
+                            # Setup download handler
+                            download_triggered = []
+                            async def handle_download(download):
+                                print(f"[VIDEO] Download started: {download.suggested_filename}")
+                                await download.save_as(filepath)
+                                download_triggered.append(True)
+                                print(f"[VIDEO] ✅ Downloaded via handler: {filename}")
+                            
+                            page.on("download", handle_download)
+                            
+                            # Navigate to video URL
+                            await page.goto(url, timeout=30000)
+                            await asyncio.sleep(2)
+                            
+                            page.remove_listener("download", handle_download)
+                            
+                            if filepath.exists() and filepath.stat().st_size > 0:
                                 downloaded_files.append(str(filepath))
-                                print(f"[VIDEO] ✅ Downloaded: {filename} ({len(body)} bytes)")
-                            else:
-                                print(f"[VIDEO] ❌ Download {i+1} failed: HTTP {response.status}")
+                            elif not download_triggered:
+                                print(f"[VIDEO] ❌ Download {i+1}: no download triggered")
                                 
                         except Exception as e:
                             print(f"[VIDEO] ❌ Download {i+1} error: {e}")
