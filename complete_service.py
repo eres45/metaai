@@ -301,80 +301,15 @@ class MetaGenerationService:
                 # Navigate to /media page
                 print(f"[VIDEO] Navigating to /media page...")
                 await page.goto("https://www.meta.ai/media")
-                await asyncio.sleep(5)  # Longer wait for any redirects
-                print(f"[VIDEO] Final URL: {page.url}")
+                await asyncio.sleep(3)  # Same as image method
+                print(f"[VIDEO] Page loaded: {page.url}")
                 
-                # Check page loaded - wait for it to stabilize
-                for check in range(5):  # More checks
-                    await asyncio.sleep(2)
-                    page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
-                    print(f"[VIDEO] Page content check {check+1}: {page_text[:150]}...")
-                    # Must have 'Quick test' to be on correct /media page
-                    if 'Quick test' in page_text:
-                        print("[VIDEO] Page looks correct - found 'Quick test'!")
-                        break
-                    elif 'New chat' in page_text and check < 4:
-                        print("[VIDEO] Wrong page (main chat), waiting...")
-                        continue
+                # Check page loaded
+                page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
+                print(f"[VIDEO] Page content: {page_text[:200]}...")
                 
-                # Try to click on "Create" button to enter media mode
-                print("[VIDEO] Looking for Create button via JavaScript...")
-                create_clicked = await page.evaluate("""() => {
-                    // Find button with text "Create"
-                    const buttons = Array.from(document.querySelectorAll('button, [role="button"], a'));
-                    const createBtn = buttons.find(b => b.textContent && b.textContent.trim() === 'Create');
-                    if (createBtn) {
-                        createBtn.click();
-                        return 'clicked';
-                    }
-                    // Also try finding by aria-label
-                    const altBtn = document.querySelector('[aria-label*="Create"], [title*="Create"]');
-                    if (altBtn) {
-                        altBtn.click();
-                        return 'clicked-alt';
-                    }
-                    return 'not-found';
-                }""")
-                print(f"[VIDEO] Create button result: {create_clicked}")
-                
-                if create_clicked.startswith('clicked'):
-                    print("[VIDEO] Create button clicked, waiting for page change...")
-                    await asyncio.sleep(3)
-                    
-                    # NOW CLICK ON "AI Image & Video Generator" link
-                    print("[VIDEO] Looking for AI Image & Video Generator link...")
-                    video_link_clicked = await page.evaluate("""() => {
-                        const links = Array.from(document.querySelectorAll('a'));
-                        const videoLink = links.find(a => 
-                            a.textContent && a.textContent.includes('Video')
-                        );
-                        if (videoLink) {
-                            videoLink.click();
-                            return 'clicked: ' + videoLink.textContent.trim();
-                        }
-                        return 'not-found';
-                    }""")
-                    print(f"[VIDEO] Video link click result: {video_link_clicked}")
-                    
-                    if video_link_clicked.startswith('clicked'):
-                        await asyncio.sleep(3)
-                else:
-                    print("[VIDEO] Create button not found, continuing...")
-                
-                # IMPORTANT: Ensure no images are selected (Text-to-Video mode)
-                print("[VIDEO] Checking for selected images...")
-                selected_images = await page.query_selector_all('img[selected], img[aria-selected="true"], [data-selected="true"]')
-                print(f"[VIDEO] Found {len(selected_images)} selected images")
-                
-                # Click on empty space or deselect all images
-                if selected_images:
-                    print("[VIDEO] Deselecting images to ensure Text-to-Video mode...")
-                    # Try clicking on the prompt area to deselect
-                    await page.click('textarea[data-testid="composer-input"]')
-                    await asyncio.sleep(1)
-                
-                # Enter prompt using JavaScript (same as working image method)
-                print(f"Submitting prompt: {prompt}")
+                # Submit prompt - SAME as working image method
+                print(f"[VIDEO] Submitting prompt: {prompt}")
                 await page.evaluate("""(prompt) => {
                     const textarea = document.querySelector('textarea[data-testid="composer-input"]');
                     if (textarea) {
@@ -385,13 +320,12 @@ class MetaGenerationService:
                         console.log('Textarea not found');
                     }
                 }""", prompt)
-                await asyncio.sleep(1)
-                
-                # Submit
-                print("[VIDEO] Pressing Enter...")
                 await page.keyboard.press("Enter")
-                await asyncio.sleep(3)
-                print("[VIDEO] Prompt submitted!")
+                print("[VIDEO] Prompt submitted")
+                
+                # Wait longer for video generation (videos take more time)
+                print("[VIDEO] Waiting 45s for video generation...")
+                await asyncio.sleep(45)
                 
                 # Wait for videos (poll every 3 seconds for 30 seconds)
                 video_urls = []
