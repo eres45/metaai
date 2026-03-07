@@ -395,13 +395,17 @@ class MetaGenerationService:
                     output_dir = self.downloads_dir / "videos"
                     output_dir.mkdir(parents=True, exist_ok=True)
                     
-                    # Get cookies from storage for download
+                    # Get cookies from storage for download (re-read from env)
                     cookies = {}
-                    if storage_json:
-                        storage_state = json.loads(storage_json)
-                        for cookie in storage_state.get("cookies", []):
-                            if cookie.get("domain") in [".meta.ai", "meta.ai"]:
+                    storage_json_refresh = os.environ.get("STORAGE_STATE")
+                    if storage_json_refresh:
+                        try:
+                            storage_state = json.loads(storage_json_refresh)
+                            for cookie in storage_state.get("cookies", []):
                                 cookies[cookie["name"]] = cookie["value"]
+                            print(f"[VIDEO] Using {len(cookies)} cookies for download")
+                        except Exception as e:
+                            print(f"[VIDEO] Cookie parse error: {e}")
                     
                     for i, url in enumerate(video_urls[:4]):
                         try:
@@ -412,17 +416,20 @@ class MetaGenerationService:
                             import requests
                             session = requests.Session()
                             for name, value in cookies.items():
-                                session.cookies.set(name, value, domain=".meta.ai")
+                                session.cookies.set(name, value)
                             
+                            print(f"[VIDEO] Downloading {filename}...")
                             response = session.get(url, stream=True, timeout=120)
+                            print(f"[VIDEO] Response status: {response.status_code}")
                             response.raise_for_status()
                             
                             with open(filepath, 'wb') as f:
                                 for chunk in response.iter_content(chunk_size=8192):
-                                    f.write(chunk)
+                                    if chunk:
+                                        f.write(chunk)
                             
                             downloaded_files.append(str(filepath))
-                            print(f"[VIDEO] ✅ Downloaded: {filename}")
+                            print(f"[VIDEO] ✅ Downloaded: {filename} ({filepath.stat().st_size} bytes)")
                         except Exception as e:
                             print(f"[VIDEO] ❌ Download {i+1} failed: {e}")
                 
