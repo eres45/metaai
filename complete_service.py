@@ -347,6 +347,22 @@ class MetaGenerationService:
                 }""")
                 print(f"[VIDEO] Generation indicators found: {has_generating}")
                 
+                # DEBUG: Take screenshot and check page content
+                await page.screenshot(path=str(output_dir / "debug_after_submit.png"))
+                print(f"[VIDEO] Screenshot saved")
+                
+                # Check what's on the page
+                page_text_check = await page.evaluate("""() => {
+                    const text = document.body.innerText;
+                    // Look for video-related terms
+                    return {
+                        hasVideo: text.includes('video') || text.includes('Video'),
+                        hasDancing: text.includes('Dancing'),
+                        textPreview: text.slice(0, 500)
+                    };
+                }""")
+                print(f"[VIDEO] Page check: {page_text_check}")
+                
                 # Wait for videos - poll every 3s for 90s
                 print("[VIDEO] Waiting for videos (up to 90s)...")
                 video_urls = []
@@ -385,6 +401,29 @@ class MetaGenerationService:
                     # Progress update every 15s
                     if elapsed % 15 == 0 and not video_urls:
                         print(f"[VIDEO] [{elapsed}s] Still waiting...")
+                
+                # Final check: look for video URLs in page source
+                if not video_urls:
+                    print("[VIDEO] Final check: searching page source for video URLs...")
+                    page_html = await page.content()
+                    import re
+                    # Look for fbcdn video URLs
+                    fbcdn_matches = re.findall(r'https://[^"\s]*video[^"\s]*\.mp4[^"\s]*', page_html)
+                    if fbcdn_matches:
+                        print(f"[VIDEO] Found {len(fbcdn_matches)} video URLs in source!")
+                        for url in fbcdn_matches:
+                            clean_url = url.replace('\\u0026', '&')
+                            if clean_url not in video_urls:
+                                video_urls.append(clean_url)
+                                print(f"[VIDEO]   URL: {clean_url[:80]}...")
+                    
+                    # Also look for video elements with data-src or other attributes
+                    other_videos = await page.query_selector_all('video[data-src], video[src]')
+                    for vid in other_videos:
+                        src = await vid.get_attribute('src') or await vid.get_attribute('data-src')
+                        if src and src not in video_urls:
+                            video_urls.append(src)
+                            print(f"[VIDEO] Found via selector: {src[:60]}...")
                 
                 # Download videos by navigating to URL
                 downloaded_files = []
