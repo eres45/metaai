@@ -447,56 +447,60 @@ class MetaGenerationService:
                             video_urls.append(src)
                             print(f"[VIDEO] Found via selector: {src[:60]}...")
                 
-                # Download videos by navigating to URL
-                downloaded_files = []
+                # Download videos by navigating to URL and return base64
+                video_data_list = []
                 if video_urls:
-                    print(f"[VIDEO] Downloading {len(video_urls)} videos via navigation...")
-                    output_dir = self.downloads_dir / "videos"
-                    output_dir.mkdir(parents=True, exist_ok=True)
+                    print(f"[VIDEO] Downloading {len(video_urls)} videos via base64...")
                     
                     for i, url in enumerate(video_urls[:4]):
                         try:
-                            filename = f"video_{i+1}.mp4"
-                            filepath = output_dir / filename
+                            print(f"[VIDEO] Downloading video {i+1}...")
                             
-                            print(f"[VIDEO] Downloading {filename}...")
-                            
-                            # Navigate to video URL - browser will show video
+                            # Navigate to video URL
                             await page.goto(url, wait_until="networkidle", timeout=60000)
                             
-                            # Get page content (for video it might be binary or player)
-                            # Try to get the video element src
-                            video_src = await page.evaluate("""() => {
+                            # Get video element and download via fetch
+                            video_base64 = await page.evaluate("""async () => {
                                 const video = document.querySelector('video');
-                                return video ? video.src : null;
+                                if (!video || !video.src) return null;
+                                
+                                try {
+                                    const response = await fetch(video.src);
+                                    const blob = await response.blob();
+                                    return new Promise((resolve) => {
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => resolve(reader.result);
+                                        reader.readAsDataURL(blob);
+                                    });
+                                } catch (e) {
+                                    return null;
+                                }
                             }""")
                             
-                            if video_src:
-                                print(f"[VIDEO] Found video src: {video_src[:60]}...")
-                                # Use request to get the actual video
-                                response = await context.request.get(video_src)
-                                if response.status == 200:
-                                    body = await response.body()
-                                    with open(filepath, 'wb') as f:
-                                        f.write(body)
-                                    downloaded_files.append(str(filepath))
-                                    print(f"[VIDEO] ✅ Downloaded: {filename} ({len(body)} bytes)")
-                                else:
-                                    print(f"[VIDEO] ❌ HTTP {response.status}")
+                            if video_base64:
+                                # Remove data:video/mp4;base64, prefix
+                                base64_data = video_base64.split(',')[1] if ',' in video_base64 else video_base64
+                                video_data_list.append({
+                                    "index": i + 1,
+                                    "base64": base64_data,
+                                    "size": len(base64_data)
+                                })
+                                print(f"[VIDEO] ✅ Video {i+1} encoded ({len(base64_data):,} chars)")
                             else:
-                                print(f"[VIDEO] ❌ No video element found")
+                                print(f"[VIDEO] ❌ Video {i+1} failed to encode")
                                 
                         except Exception as e:
-                            print(f"[VIDEO] ❌ Download {i+1} error: {e}")
+                            print(f"[VIDEO] ❌ Video {i+1} error: {e}")
                 
                 await context.close()
                 
-                print(f"[VIDEO] Complete: {len(video_urls)} videos found, {len(downloaded_files)} downloaded")
+                print(f"[VIDEO] Complete: {len(video_urls)} videos found, {len(video_data_list)} encoded")
                 return {
                     "success": len(video_urls) > 0,
                     "prompt": prompt,
                     "video_urls": video_urls[:4],
-                    "downloaded_files": downloaded_files,
+                    "videos_base64": video_data_list,
+                    "download_instruction": "Decode base64: echo 'BASE64_DATA' | base64 -d > video.mp4",
                     "count": len(video_urls)
                 }
                 
