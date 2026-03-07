@@ -295,45 +295,28 @@ class MetaGenerationService:
                     except Exception as e:
                         print(f"[VIDEO] ⚠️ Cookie load failed: {e}")
                 
-                # Navigate to /media page
-                print("[VIDEO] Navigating to /media...")
-                await page.goto("https://www.meta.ai/media")
-                await asyncio.sleep(5)  # Wait for full load
+                # Navigate to main Meta AI page (not /media)
+                print("[VIDEO] Navigating to main Meta AI...")
+                await page.goto("https://www.meta.ai/")
+                await asyncio.sleep(3)
                 print(f"[VIDEO] Page loaded: {page.url}")
                 
-                # Check if any images are selected (Text-to-Video needs 0 selected)
-                selected_count = await page.evaluate("""() => {
-                    const text = document.body.innerText;
-                    const match = text.match(/Selected:\\s*(\\d+)/);
-                    return match ? parseInt(match[1]) : 0;
-                }""")
-                print(f"[VIDEO] Images selected: {selected_count}")
-                
-                if selected_count > 0:
-                    print("[VIDEO] Deselecting images...")
-                    await page.evaluate("""() => {
-                        const clearBtn = Array.from(document.querySelectorAll('button')).find(
-                            b => b.textContent && b.textContent.includes('Clear')
-                        );
-                        if (clearBtn) clearBtn.click();
-                    }""")
-                    await asyncio.sleep(2)
-                
-                # Enter prompt
-                print(f"[VIDEO] Entering prompt: {prompt}")
+                # Enter prompt for video generation
+                video_prompt = f"Generate a video: {prompt}"
+                print(f"[VIDEO] Entering: {video_prompt}")
                 await page.evaluate("""(prompt) => {
                     const ta = document.querySelector('textarea[data-testid="composer-input"]');
                     if (ta) {
                         ta.value = prompt;
                         ta.dispatchEvent(new Event('input', { bubbles: true }));
                     }
-                }""", prompt)
+                }""", video_prompt)
                 await asyncio.sleep(1)
                 
                 # Submit
                 print("[VIDEO] Submitting...")
                 await page.keyboard.press("Enter")
-                await asyncio.sleep(5)
+                await asyncio.sleep(10)
                 
                 # DEBUG: Check what happened after submit
                 page_text = await page.evaluate("() => document.body.innerText.slice(0, 800)")
