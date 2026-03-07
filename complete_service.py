@@ -355,8 +355,8 @@ class MetaGenerationService:
                     await asyncio.sleep(3)
                     elapsed = (i + 1) * 3
                     
-                    # Check for videos with src
-                    videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"]')
+                    # Check for videos with multiple methods
+                    videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"], video')
                     
                     if videos:
                         print(f"[VIDEO] [{elapsed}s] Found {len(videos)} videos!")
@@ -369,8 +369,21 @@ class MetaGenerationService:
                         if len(video_urls) >= 4:
                             break
                     
+                    if not videos and elapsed > 30:
+                        # Try finding URLs in page source
+                        page_html = await page.content()
+                        import re
+                        video_matches = re.findall(r'https://video[^"\s]+\.mp4[^"\s]*', page_html)
+                        if video_matches:
+                            print(f"[VIDEO] [{elapsed}s] Found {len(video_matches)} video URLs in source!")
+                            for url in video_matches:
+                                if url not in video_urls:
+                                    video_urls.append(url)
+                            if len(video_urls) >= 4:
+                                break
+                    
                     # Progress update every 15s
-                    if elapsed % 15 == 0:
+                    if elapsed % 15 == 0 and not video_urls:
                         print(f"[VIDEO] [{elapsed}s] Still waiting...")
                 
                 await context.close()
