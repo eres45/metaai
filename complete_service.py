@@ -419,32 +419,14 @@ class MetaGenerationService:
                 return False
     
     async def generate_and_download_video_v2(self, prompt: str) -> Dict:
-        """Generate video using v2 method and download with browser cookies."""
+        """Generate video and return URLs (download happens client-side with cookies)."""
         result = await self.generate_video_v2(prompt)
         
-        output_dir = self.downloads_dir / "videos"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        downloaded = []
+        # Skip slow server-side download, just return URLs
+        # Client should use download_helper.py with cookies
+        result["download_dir"] = str(self.downloads_dir / "videos")
+        result["note"] = "Use download_helper.py with STORAGE_STATE env to download videos"
         
-        if result.get("success") and result.get("video_urls"):
-            for i, url in enumerate(result["video_urls"]):
-                filename = f"video_{i+1}.mp4"
-                filepath = output_dir / filename
-                
-                print(f"[DOWNLOAD] Downloading video {i+1} with browser...")
-                success = await self.download_video_with_browser(url, str(filepath))
-                
-                if success:
-                    downloaded.append(str(filepath))
-                    print(f"[DOWNLOAD] Video {i+1} downloaded")
-                else:
-                    print(f"[DOWNLOAD] Browser failed, trying direct...")
-                    filepath_result = self.download_file(url, output_dir, filename)
-                    if filepath_result:
-                        downloaded.append(filepath_result)
-        
-        result["downloaded_files"] = downloaded
-        result["download_dir"] = str(output_dir)
         return result
 
 
