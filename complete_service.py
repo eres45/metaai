@@ -300,28 +300,26 @@ class MetaGenerationService:
                 output_dir = self.downloads_dir / "videos"
                 output_dir.mkdir(parents=True, exist_ok=True)
                 
-                print("[VIDEO] Navigating to /media...")
-                await page.goto("https://www.meta.ai/media")
-                await asyncio.sleep(5)  # Wait for full load
-                print(f"[VIDEO] Page loaded: {page.url}")
+                print("[VIDEO] Navigating to main Meta AI...")
+                await page.goto("https://www.meta.ai/")
+                await asyncio.sleep(3)
                 
-                # Check if any images are selected (Text-to-Video needs 0 selected)
-                selected_count = await page.evaluate("""() => {
-                    const text = document.body.innerText;
-                    const match = text.match(/Selected:\\s*(\\d+)/);
-                    return match ? parseInt(match[1]) : 0;
+                # Look for and click "New chat" or similar to start fresh
+                print("[VIDEO] Starting new chat...")
+                await page.evaluate("""() => {
+                    // Try to find new chat button
+                    const newChatBtn = Array.from(document.querySelectorAll('button, a')).find(
+                        el => el.textContent && el.textContent.toLowerCase().includes('new chat')
+                    );
+                    if (newChatBtn) {
+                        newChatBtn.click();
+                        return true;
+                    }
+                    return false;
                 }""")
-                print(f"[VIDEO] Images selected: {selected_count}")
+                await asyncio.sleep(2)
                 
-                if selected_count > 0:
-                    print("[VIDEO] Deselecting images...")
-                    await page.evaluate("""() => {
-                        const clearBtn = Array.from(document.querySelectorAll('button')).find(
-                            b => b.textContent && b.textContent.includes('Clear')
-                        );
-                        if (clearBtn) clearBtn.click();
-                    }""")
-                    await asyncio.sleep(2)
+                print(f"[VIDEO] Page loaded: {page.url}")
                 
                 # Enter prompt
                 print(f"[VIDEO] Entering prompt: {prompt}")
