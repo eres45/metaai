@@ -371,81 +371,58 @@ class MetaGenerationService:
                     await asyncio.sleep(3)
                     elapsed = (i + 1) * 3
                     
-                    # Check for videos with multiple methods
-                    # 1. Direct video elements
-                    videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"], video')
+                    # Get page HTML for source analysis
+                    page_html = await page.content()
                     
-                    # 2. Videos in assistant messages (the generated response)
-                    if not videos:
-                        videos = await page.query_selector_all('[data-testid="assistant-message"] video, .assistant-message video, [role="assistant"] video')
+                    # Search for fbcdn video URLs in page source (most reliable)
+                    import re
+                    # Look for all video-sin or fbcdn video URLs
+                    fbcdn_pattern = r'https://video[^"\s<>]+\.mp4[^"\s<>]*'
+                    matches = re.findall(fbcdn_pattern, page_html)
                     
-                    # 3. Any video element on page
-                    if not videos:
-                        videos = await page.query_selector_all('video')
+                    for url in matches:
+                        # Clean up URL (handle escaped characters)
+                        clean_url = url.replace('\\u0026', '&').replace('\\', '')
+                        if clean_url not in video_urls and 'fbcdn.net' in clean_url:
+                            video_urls.append(clean_url)
+                            print(f"[VIDEO] [{elapsed}s] Found URL: {clean_url[:60]}...")
                     
+                    if len(video_urls) >= 4:
+                        print(f"[VIDEO] Got {len(video_urls)} URLs, breaking early")
+                        break
+                    
+                    # Also check for video elements
+                    videos = await page.query_selector_all('video')
                     if videos:
-                        print(f"[VIDEO] [{elapsed}s] Found {len(videos)} videos!")
+                        print(f"[VIDEO] [{elapsed}s] Found {len(videos)} video elements")
                         for vid in videos:
                             src = await vid.get_attribute('src')
                             if src and src not in video_urls:
                                 video_urls.append(src)
-                                print(f"[VIDEO]   URL: {src[:60]}...")
-                        
-                        if len(video_urls) >= 4:
-                            break
-                    
-                    # Check for video cards/media containers
-                    media_containers = await page.query_selector_all('[data-testid*="media"], .media-container, .video-card')
-                    if media_containers:
-                        print(f"[VIDEO] [{elapsed}s] Found {len(media_containers)} media containers")
-                        for container in media_containers:
-                            # Check for video inside
-                            vid_in_container = await container.query_selector('video')
-                            if vid_in_container:
-                                src = await vid_in_container.get_attribute('src')
-                                if src and src not in video_urls:
-                                    video_urls.append(src)
-                                    print(f"[VIDEO]   Container video: {src[:60]}...")
-                    
-                    if not videos and elapsed > 30:
-                        # Try finding URLs in page source
-                        page_html = await page.content()
-                        import re
-                        video_matches = re.findall(r'https://video[^"\s]+\.mp4[^"\s]*', page_html)
-                        if video_matches:
-                            print(f"[VIDEO] [{elapsed}s] Found {len(video_matches)} video URLs in source!")
-                            for url in video_matches:
-                                if url not in video_urls:
-                                    video_urls.append(url)
-                            if len(video_urls) >= 4:
-                                break
+                                print(f"[VIDEO]   Video src: {src[:60]}...")
                     
                     # Progress update every 15s
-                    if elapsed % 15 == 0 and not video_urls:
-                        print(f"[VIDEO] [{elapsed}s] Still waiting...")
+                    if elapsed % 15 == 0 and len(video_urls) < 4:
+                        # Count "Dancing" or prompt words in page to see if generating
+                        page_text = await page.evaluate("() => document.body.innerText")
+                        prompt_words = prompt.lower().split()[:2]  # First 2 words of prompt
+                        found_words = sum(1 for w in prompt_words if w in page_text.lower())
+                        print(f"[VIDEO] [{elapsed}s] Waiting... (found {len(video_urls)} URLs, {found_words}/{len(prompt_words)} prompt words in page)")
                 
                 # Final check: look for video URLs in page source
-                if not video_urls:
-                    print("[VIDEO] Final check: searching page source for video URLs...")
+                if len(video_urls) < 4:
+                    print(f"[VIDEO] Final check: searching page source... (have {len(video_urls)})")
                     page_html = await page.content()
                     import re
                     # Look for fbcdn video URLs
-                    fbcdn_matches = re.findall(r'https://[^"\s]*video[^"\s]*\.mp4[^"\s]*', page_html)
+                    fbcdn_matches = re.findall(r'https://[^"\s<>]*video[^"\s<>]*\.mp4[^"\s<>]*', page_html)
                     if fbcdn_matches:
                         print(f"[VIDEO] Found {len(fbcdn_matches)} video URLs in source!")
                         for url in fbcdn_matches:
-                            clean_url = url.replace('\\u0026', '&')
-                            if clean_url not in video_urls:
+                            clean_url = url.replace('\\u0026', '&').replace('\\', '')
+                            if clean_url not in video_urls and 'fbcdn.net' in clean_url:
                                 video_urls.append(clean_url)
                                 print(f"[VIDEO]   URL: {clean_url[:80]}...")
-                    
-                    # Also look for video elements with data-src or other attributes
-                    other_videos = await page.query_selector_all('video[data-src], video[src]')
-                    for vid in other_videos:
-                        src = await vid.get_attribute('src') or await vid.get_attribute('data-src')
-                        if src and src not in video_urls:
-                            video_urls.append(src)
-                            print(f"[VIDEO] Found via selector: {src[:60]}...")
                 
                 # Download videos by navigating to URL and return base64
                 video_data_list = []
