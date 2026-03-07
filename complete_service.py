@@ -386,61 +386,38 @@ class MetaGenerationService:
                     if elapsed % 15 == 0 and not video_urls:
                         print(f"[VIDEO] [{elapsed}s] Still waiting...")
                 
-                await context.close()
-                
-                # Download videos using browser cookies via requests with cookie jar
+                # Download videos using browser BEFORE closing context
                 downloaded_files = []
                 if video_urls:
-                    print(f"[VIDEO] Downloading {len(video_urls)} videos...")
+                    print(f"[VIDEO] Downloading {len(video_urls)} videos via browser...")
                     output_dir = self.downloads_dir / "videos"
                     output_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Get cookies from storage for download (re-read from env)
-                    import requests
-                    session = requests.Session()
-                    storage_json_refresh = os.environ.get("STORAGE_STATE")
-                    if storage_json_refresh:
-                        try:
-                            storage_state = json.loads(storage_json_refresh)
-                            for cookie in storage_state.get("cookies", []):
-                                # Add cookie with exact attributes
-                                session.cookies.set(
-                                    cookie["name"],
-                                    cookie["value"],
-                                    domain=cookie.get("domain", ""),
-                                    path=cookie.get("path", "/")
-                                )
-                            print(f"[VIDEO] Using {len(storage_state.get('cookies', []))} cookies for download")
-                        except Exception as e:
-                            print(f"[VIDEO] Cookie parse error: {e}")
-                    
-                    # Add proper headers to mimic browser
-                    headers = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Referer': 'https://www.meta.ai/',
-                        'Accept': '*/*',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                    }
                     
                     for i, url in enumerate(video_urls[:4]):
                         try:
                             filename = f"video_{i+1}.mp4"
                             filepath = output_dir / filename
                             
-                            print(f"[VIDEO] Downloading {filename}...")
-                            response = session.get(url, headers=headers, stream=True, timeout=120)
-                            print(f"[VIDEO] Response status: {response.status_code}, Cookies sent: {len(session.cookies)})")
-                            response.raise_for_status()
+                            # Use browser to download via fetch
+                            print(f"[VIDEO] Browser downloading {filename}...")
+                            video_data = await page.evaluate("""async (url) => {
+                                const response = await fetch(url);
+                                if (!response.ok) return null;
+                                const blob = await response.blob();
+                                return new Uint8Array(await blob.arrayBuffer());
+                            }""", url)
                             
-                            with open(filepath, 'wb') as f:
-                                for chunk in response.iter_content(chunk_size=8192):
-                                    if chunk:
-                                        f.write(chunk)
-                            
-                            downloaded_files.append(str(filepath))
-                            print(f"[VIDEO] ✅ Downloaded: {filename} ({filepath.stat().st_size} bytes)")
+                            if video_data:
+                                with open(filepath, 'wb') as f:
+                                    f.write(bytes(video_data))
+                                downloaded_files.append(str(filepath))
+                                print(f"[VIDEO] ✅ Downloaded: {filename} ({len(video_data)} bytes)")
+                            else:
+                                print(f"[VIDEO] ❌ Download {i+1} failed via browser")
                         except Exception as e:
-                            print(f"[VIDEO] ❌ Download {i+1} failed: {e}")
+                            print(f"[VIDEO] ❌ Download {i+1} error: {e}")
+                
+                await context.close()
                 
                 print(f"[VIDEO] Complete: {len(video_urls)} videos found, {len(downloaded_files)} downloaded")
                 return {
