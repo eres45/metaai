@@ -388,11 +388,50 @@ class MetaGenerationService:
                 
                 await context.close()
                 
-                print(f"[VIDEO] Complete: {len(video_urls)} videos found")
+                # Download videos using browser cookies via requests with cookie jar
+                downloaded_files = []
+                if video_urls:
+                    print(f"[VIDEO] Downloading {len(video_urls)} videos...")
+                    output_dir = self.downloads_dir / "videos"
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Get cookies from storage for download
+                    cookies = {}
+                    if storage_json:
+                        storage_state = json.loads(storage_json)
+                        for cookie in storage_state.get("cookies", []):
+                            if cookie.get("domain") in [".meta.ai", "meta.ai"]:
+                                cookies[cookie["name"]] = cookie["value"]
+                    
+                    for i, url in enumerate(video_urls[:4]):
+                        try:
+                            filename = f"video_{i+1}.mp4"
+                            filepath = output_dir / filename
+                            
+                            # Download with cookies
+                            import requests
+                            session = requests.Session()
+                            for name, value in cookies.items():
+                                session.cookies.set(name, value, domain=".meta.ai")
+                            
+                            response = session.get(url, stream=True, timeout=120)
+                            response.raise_for_status()
+                            
+                            with open(filepath, 'wb') as f:
+                                for chunk in response.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                            
+                            downloaded_files.append(str(filepath))
+                            print(f"[VIDEO] ✅ Downloaded: {filename}")
+                        except Exception as e:
+                            print(f"[VIDEO] ❌ Download {i+1} failed: {e}")
+                
+                print(f"[VIDEO] Complete: {len(video_urls)} videos found, {len(downloaded_files)} downloaded")
                 return {
                     "success": len(video_urls) > 0,
                     "prompt": prompt,
                     "video_urls": video_urls[:4],
+                    "downloaded_files": downloaded_files,
                     "count": len(video_urls)
                 }
                 
