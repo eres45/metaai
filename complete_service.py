@@ -21,7 +21,22 @@ class MetaGenerationService:
         self.downloads_dir.mkdir(exist_ok=True)
     
     async def _setup_cookies_from_env(self, context):
-        """Load cookies from META_COOKIES env var into browser context."""
+        """Load cookies from META_COOKIES or STORAGE_STATE env var into browser context."""
+        
+        # Try STORAGE_STATE first (full storage state format)
+        storage_json = os.environ.get("STORAGE_STATE")
+        if storage_json:
+            try:
+                storage_state = json.loads(storage_json)
+                cookies = storage_state.get("cookies", [])
+                if cookies:
+                    await context.add_cookies(cookies)
+                    print(f"✅ Loaded {len(cookies)} cookies from STORAGE_STATE")
+                    return True
+            except Exception as e:
+                print(f"⚠️ Failed to load STORAGE_STATE: {e}")
+        
+        # Fallback to META_COOKIES (simple dict format)
         cookies_json = os.environ.get("META_COOKIES")
         if cookies_json:
             try:
@@ -37,10 +52,15 @@ class MetaGenerationService:
                         "secure": True,
                         "httpOnly": True
                     })
-                await context.add_cookies(playwright_cookies)
-                print(f"✅ Loaded {len(playwright_cookies)} cookies into browser")
+                if playwright_cookies:
+                    await context.add_cookies(playwright_cookies)
+                    print(f"✅ Loaded {len(playwright_cookies)} cookies from META_COOKIES")
+                    return True
             except Exception as e:
-                print(f"⚠️ Failed to load cookies: {e}")
+                print(f"⚠️ Failed to load META_COOKIES: {e}")
+        
+        print("⚠️ No valid cookies found in environment")
+        return False
     
     async def generate_images(
         self, 
@@ -48,37 +68,44 @@ class MetaGenerationService:
         num_images: int = 4
     ) -> Dict:
         """Generate images from text prompt."""
+        print(f"[IMAGES] Starting generation for: {prompt}")
         async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=self.user_data_dir,
-                headless=True,
-                args=["--disable-blink-features=AutomationControlled"]
-            )
+            try:
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir=self.user_data_dir,
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+                )
+            except Exception as e:
+                print(f"[IMAGES] Failed to launch browser: {e}")
+                return {"success": False, "error": f"Browser launch failed: {e}"}
+            
             page = await context.new_page()
             
-            # Load storage state from env if available
-            storage_json = os.environ.get("STORAGE_STATE")
-            if storage_json:
-                try:
-                    storage_state = json.loads(storage_json)
-                    await context.add_cookies(storage_state.get("cookies", []))
-                    print(f"✅ Loaded {len(storage_state.get('cookies', []))} cookies from storage state")
-                except Exception as e:
-                    print(f"⚠️ Failed to load storage state: {e}")
+            # Load cookies from env
+            cookies_loaded = await self._setup_cookies_from_env(context)
+            if not cookies_loaded:
+                print("[IMAGES] Warning: No cookies loaded, may need login")
             
             # Navigate to site
-            await page.goto("https://www.meta.ai")
-            await asyncio.sleep(2)
+            try:
+                print("[IMAGES] Navigating to meta.ai...")
+                await page.goto("https://www.meta.ai", timeout=30000)
+                await asyncio.sleep(2)
+            except Exception as e:
+                print(f"[IMAGES] Failed to navigate: {e}")
+                await context.close()
+                return {"success": False, "error": f"Navigation failed: {e}"}
             
             try:
-                print(f"Page loaded: {page.url}")
+                print(f"[IMAGES] Page loaded: {page.url}")
                 
                 # Check if logged in
                 page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
-                print(f"Page content preview: {page_text}")
+                print(f"[IMAGES] Page content: {page_text[:200]}...")
                 
                 # Submit prompt
-                print(f"Submitting prompt: {prompt}")
+                print(f"[IMAGES] Submitting prompt: {prompt}")
                 await page.evaluate("""(prompt) => {
                     const textarea = document.querySelector('textarea[data-testid="composer-input"]');
                     if (textarea) {
@@ -90,21 +117,21 @@ class MetaGenerationService:
                     }
                 }""", prompt)
                 await page.keyboard.press("Enter")
-                print("Prompt submitted")
+                print("[IMAGES] Prompt submitted")
                 
                 # Wait for generation
-                print("Waiting 15s for generation...")
+                print("[IMAGES] Waiting 15s for generation...")
                 await asyncio.sleep(15)
                 
                 # Extract image URLs - look for images from fbcdn (Facebook CDN)
-                print("Looking for images...")
+                print("[IMAGES] Looking for images...")
                 images = await page.query_selector_all('img[src*="fbcdn.net"], img[src*="scontent"], img[data-testid="generated-image"]')
-                print(f"Found {len(images)} images")
+                print(f"[IMAGES] Found {len(images)} images")
                 image_urls = []
                 
                 for i, img in enumerate(images[:num_images * 3]):  # Check more images
                     src = await img.get_attribute('src')
-                    print(f"Image {i}: {src[:50] if src else 'None'}...")
+                    print(f"[IMAGES] Image {i}: {src[:50] if src else 'None'}...")
                     # Filter: must have fbcdn but NOT rsrc.php (logos)
                     if src and src not in image_urls and 'fbcdn' in src and 'rsrc.php' not in src:
                         image_urls.append(src)
@@ -113,16 +140,20 @@ class MetaGenerationService:
                 
                 await context.close()
                 
-                return {
+                result = {
                     "success": len(image_urls) > 0,
                     "prompt": prompt,
                     "image_urls": image_urls,
-                    "count": len(image_urls)
+                    "count": len(image_urls),
+                    "cookies_loaded": cookies_loaded
                 }
+                print(f"[IMAGES] Result: {result}")
+                return result
                 
             except Exception as e:
+                print(f"[IMAGES] Error during generation: {e}")
                 await context.close()
-                return {"success": False, "error": str(e)}
+                return {"success": False, "error": str(e), "cookies_loaded": cookies_loaded}
     
     async def generate_video(
         self, 
@@ -273,27 +304,29 @@ class MetaGenerationService:
     
     async def generate_video_v2(self, prompt: str) -> Dict:
         """Generate video using main Meta AI chat with 'Generate a video:' prefix."""
+        print(f"[VIDEO] Starting generation for: {prompt}")
         async with async_playwright() as p:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=self.user_data_dir,
-                headless=True,
-                args=["--disable-blink-features=AutomationControlled"]
-            )
+            try:
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir=self.user_data_dir,
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+                )
+            except Exception as e:
+                print(f"[VIDEO] Failed to launch browser: {e}")
+                return {"success": False, "error": f"Browser launch failed: {e}"}
+            
             page = await context.new_page()
             
+            # Load cookies from env
+            cookies_loaded = await self._setup_cookies_from_env(context)
+            if not cookies_loaded:
+                print("[VIDEO] Warning: No cookies loaded, may need login")
+            
             try:
-                storage_json = os.environ.get("STORAGE_STATE")
-                if storage_json:
-                    try:
-                        storage_state = json.loads(storage_json)
-                        await context.add_cookies(storage_state.get("cookies", []))
-                        print(f"[VIDEO] Loaded {len(storage_state.get('cookies', []))} cookies")
-                    except Exception as e:
-                        print(f"[VIDEO] Cookie load failed: {e}")
-                
                 # Navigate to main Meta AI page
                 print("[VIDEO] Navigating to main Meta AI...")
-                await page.goto("https://www.meta.ai/")
+                await page.goto("https://www.meta.ai/", timeout=30000)
                 await asyncio.sleep(3)
                 print(f"[VIDEO] Page: {page.url}")
                 
@@ -305,6 +338,8 @@ class MetaGenerationService:
                     if (ta) {
                         ta.value = prompt;
                         ta.dispatchEvent(new Event('input', { bubbles: true }));
+                    } else {
+                        console.log('[VIDEO] Textarea not found!');
                     }
                 }""", video_prompt)
                 await asyncio.sleep(1)
@@ -358,13 +393,14 @@ class MetaGenerationService:
                     "success": len(video_urls) > 0,
                     "prompt": prompt,
                     "video_urls": video_urls[:4],
-                    "count": len(video_urls)
+                    "count": len(video_urls),
+                    "cookies_loaded": cookies_loaded
                 }
                 
             except Exception as e:
                 print(f"[VIDEO] Error: {e}")
                 await context.close()
-                return {"success": False, "error": str(e)}
+                return {"success": False, "error": str(e), "cookies_loaded": cookies_loaded}
     
     async def download_video_with_browser(self, video_url: str, output_path: str) -> bool:
         """Download video using browser fetch with session cookies."""
