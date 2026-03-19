@@ -368,41 +368,63 @@ class MetaGenerationService:
                 
                 print(f"[VIDEO] URL after submit: {page.url}")
                 
-                # Wait for videos
-                print("[VIDEO] Waiting for videos (90s)...")
+                # Wait for videos - check page content for generation status
+                print("[VIDEO] Waiting for videos (90s max)...")
                 video_urls = []
+                page_checked = False
                 
                 for i in range(30):
                     await asyncio.sleep(3)
                     elapsed = (i + 1) * 3
                     
-                    videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video-sin"], video')
-                    
+                    # Check 1: Look for video elements
+                    videos = await page.query_selector_all('video')
                     if videos:
-                        print(f"[VIDEO] [{elapsed}s] Found {len(videos)} videos!")
+                        print(f"[VIDEO] [{elapsed}s] Found {len(videos)} video elements")
                         for vid in videos:
                             src = await vid.get_attribute('src')
-                            if src and src not in video_urls:
+                            if src and src not in video_urls and '.mp4' in src:
                                 video_urls.append(src)
-                                print(f"[VIDEO] URL: {src[:60]}...")
-                        
-                        if len(video_urls) >= 4:
-                            break
+                                print(f"[VIDEO] URL from element: {src[:60]}...")
                     
-                    if not videos and elapsed > 20:
+                    # Check 2: Look for video containers/links
+                    video_links = await page.query_selector_all('a[href*="video"], a[href*="fbcdn"]')
+                    if video_links:
+                        print(f"[VIDEO] [{elapsed}s] Found {len(video_links)} video links")
+                        for link in video_links:
+                            href = await link.get_attribute('href')
+                            if href and href not in video_urls and '.mp4' in href:
+                                video_urls.append(href)
+                                print(f"[VIDEO] URL from link: {href[:60]}...")
+                    
+                    # Check 3: Extract from HTML (most reliable for Meta AI)
+                    if not video_urls or elapsed % 10 == 0:
                         page_html = await page.content()
-                        import re
-                        matches = re.findall(r'https://video[^"\s]+\.mp4[^"\s]*', page_html)
-                        if matches:
-                            print(f"[VIDEO] [{elapsed}s] Found {len(matches)} URLs in source")
+                        
+                        # Multiple patterns for video URLs
+                        patterns = [
+                            r'https://[^"\s]*fbcdn\.net[^"\s]*\.mp4[^"\s]*',
+                            r'https://[^"\s]*video[^"\s]*\.mp4[^"\s]*',
+                            r'https://[^"\s]*scontent[^"\s]*\.mp4[^"\s]*',
+                        ]
+                        
+                        for pattern in patterns:
+                            matches = re.findall(pattern, page_html)
                             for url in matches:
-                                if url not in video_urls:
-                                    video_urls.append(url)
-                            if len(video_urls) >= 4:
-                                break
+                                clean_url = url.replace('&amp;', '&')
+                                if clean_url not in video_urls and '.mp4' in clean_url:
+                                    video_urls.append(clean_url)
+                                    print(f"[VIDEO] URL from HTML: {clean_url[:60]}...")
+                        
+                        if matches:
+                            print(f"[VIDEO] [{elapsed}s] Found URLs with pattern: {pattern[:30]}")
+                    
+                    if len(video_urls) >= 4:
+                        print(f"[VIDEO] Found {len(video_urls)} videos, stopping")
+                        break
                     
                     if elapsed % 15 == 0 and not video_urls:
-                        print(f"[VIDEO] [{elapsed}s] Still waiting...")
+                        print(f"[VIDEO] [{elapsed}s] Still waiting for videos...")
                 
                 await context.close()
                 
