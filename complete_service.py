@@ -401,23 +401,26 @@ class MetaGenerationService:
                     if not video_urls or elapsed % 10 == 0:
                         page_html = await page.content()
                         
-                        # Multiple patterns for video URLs
-                        patterns = [
-                            r'https://[^"\s]*fbcdn\.net[^"\s]*\.mp4[^"\s]*',
-                            r'https://[^"\s]*video[^"\s]*\.mp4[^"\s]*',
-                            r'https://[^"\s]*scontent[^"\s]*\.mp4[^"\s]*',
-                        ]
+                        # Use the pattern that worked in debug
+                        mp4_matches = re.findall(r'https://[^"\s<>]*\.mp4[^"\s<>]*', page_html)
                         
-                        for pattern in patterns:
-                            matches = re.findall(pattern, page_html)
-                            for url in matches:
+                        if mp4_matches:
+                            print(f"[VIDEO] [{elapsed}s] Found {len(mp4_matches)} .mp4 URLs in HTML")
+                            for url in mp4_matches:
                                 clean_url = url.replace('&amp;', '&')
-                                if clean_url not in video_urls and '.mp4' in clean_url:
+                                if clean_url not in video_urls:
                                     video_urls.append(clean_url)
-                                    print(f"[VIDEO] URL from HTML: {clean_url[:60]}...")
+                                    print(f"[VIDEO] URL: {clean_url[:60]}...")
                         
-                        if matches:
-                            print(f"[VIDEO] [{elapsed}s] Found URLs with pattern: {pattern[:30]}")
+                        # Also try fbcdn specific pattern as fallback
+                        fbcdn_matches = re.findall(r'https://[^"\s<>]*fbcdn\.net[^"\s<>]*\.mp4[^"\s<>]*', page_html)
+                        if fbcdn_matches:
+                            print(f"[VIDEO] [{elapsed}s] Found {len(fbcdn_matches)} fbcdn URLs")
+                            for url in fbcdn_matches:
+                                clean_url = url.replace('&amp;', '&')
+                                if clean_url not in video_urls:
+                                    video_urls.append(clean_url)
+                                    print(f"[VIDEO] fbcdn URL: {clean_url[:60]}...")
                     
                     if len(video_urls) >= 4:
                         print(f"[VIDEO] Found {len(video_urls)} videos, stopping")
