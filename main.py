@@ -421,6 +421,52 @@ async def debug_test_video(prompt: str = "A cat playing piano"):
                     result["logs"].append(f"[{elapsed}s] Found 4+ videos, stopping")
                     break
             
+            # After waiting, scroll up in the chat to find generated videos
+            result["logs"].append("Scrolling up to find videos in history...")
+            try:
+                # Scroll up multiple times to load chat history
+                for scroll in range(5):
+                    await page.evaluate("() => window.scrollBy(0, -500)")
+                    await asyncio.sleep(1)
+                    result["logs"].append(f"Scrolled up {scroll + 1} times")
+                    
+                    # Check for videos after each scroll
+                    videos = await page.query_selector_all('video')
+                    if videos:
+                        result["logs"].append(f"Found {len(videos)} videos after scrolling")
+                        for vid in videos:
+                            src = await vid.get_attribute('src')
+                            if src and src not in video_urls and '.mp4' in src:
+                                video_urls.append(src)
+                                result["logs"].append(f"  Video src: {src[:70]}...")
+            except Exception as scroll_err:
+                result["logs"].append(f"Scroll error: {str(scroll_err)}")
+            
+            # Final HTML extraction to capture any missed URLs
+            result["logs"].append("Doing final HTML extraction...")
+            try:
+                page_html = await page.content()
+                
+                # Look for video URLs with broader patterns
+                patterns = [
+                    r'https://[^"\s<>]*fbcdn\.net[^"\s<>]*\.mp4[^"\s<>]*',
+                    r'https://[^"\s<>]*scontent[^"\s<>]*\.mp4[^"\s<>]*',
+                    r'https://[^"\s<>]*video[^"\s<>]*\.mp4[^"\s<>]*',
+                    r'https://[^"\s<>]*\.mp4[^"\s<>]*',
+                ]
+                
+                for pattern in patterns:
+                    matches = re.findall(pattern, page_html)
+                    if matches:
+                        result["logs"].append(f"Final scan - Pattern found {len(matches)} matches")
+                        for url in matches[:5]:
+                            clean_url = url.replace('&amp;', '&')
+                            if clean_url not in video_urls and '.mp4' in clean_url:
+                                video_urls.append(clean_url)
+                                result["logs"].append(f"  URL: {clean_url[:70]}...")
+            except Exception as final_err:
+                result["logs"].append(f"Final extraction error: {str(final_err)}")
+            
             # Final summary
             result["timestamps"]["finished"] = "done"
             result["total_video_urls"] = len(video_urls)
