@@ -206,6 +206,65 @@ async def download_file(task_id: str, file_index: int):
         return {"error": "File not found"}
 
 
+@app.get("/debug/meta-page")
+async def debug_meta_page():
+    """Debug: Load meta.ai and capture page HTML to see what's happening."""
+    from playwright.async_api import async_playwright
+    import asyncio
+    
+    result = {"logs": []}
+    
+    async with async_playwright() as p:
+        try:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir="./meta_session",
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+            )
+            
+            # Load cookies
+            storage_json = os.environ.get("STORAGE_STATE")
+            if storage_json:
+                try:
+                    storage_state = json.loads(storage_json)
+                    await context.add_cookies(storage_state.get("cookies", []))
+                    result["cookies_loaded"] = len(storage_state.get("cookies", []))
+                except Exception as e:
+                    result["cookie_error"] = str(e)
+            
+            page = await context.new_page()
+            
+            # Navigate
+            result["logs"].append("Navigating to meta.ai...")
+            await page.goto("https://www.meta.ai", timeout=30000)
+            await asyncio.sleep(2)
+            
+            result["url"] = page.url
+            result["logs"].append(f"Page loaded: {page.url}")
+            
+            # Get page content
+            page_text = await page.evaluate("() => document.body.innerText.slice(0, 1000)")
+            result["page_text"] = page_text
+            result["logs"].append(f"Page text preview: {page_text[:200]}")
+            
+            # Check for login prompt
+            if "log in" in page_text.lower() or "sign in" in page_text.lower():
+                result["login_required"] = True
+            
+            # Check for textarea
+            textarea = await page.query_selector('textarea[data-testid="composer-input"]')
+            result["textarea_found"] = textarea is not None
+            
+            await context.close()
+            result["success"] = True
+            
+        except Exception as e:
+            result["error"] = str(e)
+            result["success"] = False
+    
+    return result
+
+
 @app.get("/debug/env")
 async def debug_env():
     """Debug endpoint to check environment variables."""
