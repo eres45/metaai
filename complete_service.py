@@ -125,16 +125,34 @@ class MetaGenerationService:
                 
                 # Extract image URLs - look for images from fbcdn (Facebook CDN)
                 print("[IMAGES] Looking for images...")
-                images = await page.query_selector_all('img[src*="fbcdn.net"], img[src*="scontent"], img[data-testid="generated-image"]')
-                print(f"[IMAGES] Found {len(images)} images")
-                image_urls = []
                 
-                for i, img in enumerate(images[:num_images * 3]):  # Check more images
+                # Try simple selector first (like debug endpoint)
+                images = await page.query_selector_all('img[src*="fbcdn.net"]')
+                print(f"[IMAGES] Found {len(images)} images with simple selector")
+                
+                image_urls = []
+                for i, img in enumerate(images[:num_images * 3]):
                     src = await img.get_attribute('src')
-                    print(f"[IMAGES] Image {i}: {src[:50] if src else 'None'}...")
-                    # Filter: must have fbcdn but NOT rsrc.php (logos)
-                    if src and src not in image_urls and 'fbcdn' in src and 'rsrc.php' not in src:
+                    print(f"[IMAGES] Image {i}: {src[:60] if src else 'None'}...")
+                    # Filter out rsrc.php (logos)
+                    if src and src not in image_urls and 'rsrc.php' not in src:
                         image_urls.append(src)
+                        if len(image_urls) >= num_images:
+                            break
+                
+                # Fallback: extract from HTML if no images found
+                if not image_urls:
+                    print("[IMAGES] No images from selector, trying HTML extraction...")
+                    page_html = await page.content()
+                    import re
+                    # Look for scontent fbcdn URLs (the generated images)
+                    fbcdn_urls = re.findall(r'https://scontent[^"\s]*fbcdn\.net[^"\s]*\.jpeg[^"\s]*', page_html)
+                    print(f"[IMAGES] Found {len(fbcdn_urls)} URLs in HTML")
+                    for url in fbcdn_urls:
+                        clean_url = url.replace('&amp;', '&')
+                        if clean_url not in image_urls:
+                            image_urls.append(clean_url)
+                            print(f"[IMAGES] URL from HTML: {clean_url[:60]}...")
                         if len(image_urls) >= num_images:
                             break
                 
