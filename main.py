@@ -209,15 +209,22 @@ async def download_file(task_id: str, file_index: int):
 
 @app.get("/debug/test-video")
 async def debug_test_video(prompt: str = "A cat playing piano"):
-    """Debug: Test video generation and capture what happens."""
+    """Ultra-detailed debug: Capture everything about video generation."""
     from playwright.async_api import async_playwright
     import asyncio
     import re
     
-    result = {"logs": []}
+    result = {
+        "logs": [],
+        "timestamps": {},
+        "page_states": [],
+        "extracted_data": {}
+    }
+    video_urls = []
     
     async with async_playwright() as p:
         try:
+            result["logs"].append("Launching browser...")
             context = await p.chromium.launch_persistent_context(
                 user_data_dir="./meta_session",
                 headless=True,
@@ -228,17 +235,47 @@ async def debug_test_video(prompt: str = "A cat playing piano"):
             storage_json = os.environ.get("STORAGE_STATE")
             if storage_json:
                 storage_state = json.loads(storage_json)
-                await context.add_cookies(storage_state.get("cookies", []))
+                cookies = storage_state.get("cookies", [])
+                await context.add_cookies(cookies)
+                result["logs"].append(f"Loaded {len(cookies)} cookies")
+            else:
+                result["logs"].append("WARNING: No STORAGE_STATE env var!")
             
             page = await context.new_page()
             
+            # Capture console messages
+            console_logs = []
+            page.on("console", lambda msg: console_logs.append(f"{msg.type}: {msg.text}"))
+            
             # Navigate
+            result["timestamps"]["navigate_start"] = "start"
             result["logs"].append("Navigating to meta.ai...")
             await page.goto("https://www.meta.ai", timeout=30000)
             await asyncio.sleep(2)
+            result["timestamps"]["navigate_end"] = "done"
             result["url_after_nav"] = page.url
+            result["logs"].append(f"Navigated to: {page.url}")
             
-            # Use video generation prefix
+            # Check if logged in
+            page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
+            result["page_text_after_nav"] = page_text
+            result["is_logged_in"] = "log in" not in page_text.lower() and "sign up" not in page_text.lower()
+            result["logs"].append(f"Logged in: {result['is_logged_in']}")
+            
+            # Find and check textarea
+            textarea = await page.query_selector('textarea[data-testid="composer-input"]')
+            result["textarea_found"] = textarea is not None
+            if textarea:
+                placeholder = await textarea.get_attribute('placeholder')
+                result["textarea_placeholder"] = placeholder
+                result["logs"].append(f"Textarea found, placeholder: {placeholder}")
+            else:
+                result["logs"].append("ERROR: Textarea not found!")
+                # List all textareas on page
+                all_textareas = await page.query_selector_all('textarea')
+                result["all_textareas_count"] = len(all_textareas)
+            
+            # Submit prompt
             video_prompt = f"Generate a video: {prompt}"
             result["logs"].append(f"Submitting: {video_prompt}")
             
@@ -247,55 +284,145 @@ async def debug_test_video(prompt: str = "A cat playing piano"):
                 if (ta) {
                     ta.value = prompt;
                     ta.dispatchEvent(new Event('input', { bubbles: true }));
+                    ta.dispatchEvent(new Event('change', { bubbles: true }));
                 }
             }""", video_prompt)
             
             await asyncio.sleep(1)
             await page.keyboard.press("Enter")
+            result["timestamps"]["submitted"] = "done"
             result["logs"].append("Enter pressed")
             
-            # Wait for video generation
-            await asyncio.sleep(10)
-            result["url_after_submit"] = page.url
+            # Wait and check multiple times
+            result["logs"].append("Starting 90s wait for video generation...")
             
-            # Check for videos
-            videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video"]')
-            result["video_elements_found"] = len(videos)
+            for i in range(30):  # 30 * 3 = 90 seconds
+                await asyncio.sleep(3)
+                elapsed = (i + 1) * 3
+                
+                # Log progress every 15 seconds
+                if elapsed % 15 == 0:
+                    result["logs"].append(f"[{elapsed}s] Checking for videos...")
+                
+                # Capture URL
+                current_url = page.url
+                if i == 0:
+                    result["url_after_submit"] = current_url
+                
+                # Get page text to check for status
+                try:
+                    page_text = await page.evaluate("() => document.body.innerText.slice(0, 800)")
+                    
+                    # Check for generation status indicators
+                    if "generating" in page_text.lower():
+                        result["logs"].append(f"[{elapsed}s] Status: Still generating...")
+                    if "video" in page_text.lower() and elapsed > 30:
+                        result["logs"].append(f"[{elapsed}s] 'video' found in page text")
+                except:
+                    pass
+                
+                # Multiple extraction attempts
+                
+                # 1. Video elements
+                videos = await page.query_selector_all('video')
+                if videos:
+                    result["logs"].append(f"[{elapsed}s] Found {len(videos)} <video> elements")
+                    for idx, vid in enumerate(videos):
+                        src = await vid.get_attribute('src')
+                        poster = await vid.get_attribute('poster')
+                        if src and '.mp4' in src and src not in video_urls:
+                            video_urls.append(src)
+                            result["logs"].append(f"  Video {idx} src: {src[:70]}...")
+                        if poster and poster not in video_urls:
+                            video_urls.append(poster)
+                            result["logs"].append(f"  Video {idx} poster: {poster[:70]}...")
+                
+                # 2. Video links
+                links = await page.query_selector_all('a[href*=".mp4"], a[href*="video"], a[href*="fbcdn"]')
+                if links:
+                    result["logs"].append(f"[{elapsed}s] Found {len(links)} video-related links")
+                    for link in links:
+                        href = await link.get_attribute('href')
+                        if href and href not in video_urls:
+                            video_urls.append(href)
+                            result["logs"].append(f"  Link: {href[:70]}...")
+                
+                # 3. All source attributes
+                sources = await page.query_selector_all('source')
+                if sources:
+                    for src_el in sources:
+                        src = await src_el.get_attribute('src')
+                        if src and '.mp4' in src and src not in video_urls:
+                            video_urls.append(src)
+                            result["logs"].append(f"[{elapsed}s] Source: {src[:70]}...")
+                
+                # 4. HTML extraction every 10 seconds
+                if elapsed % 10 == 0 or (not video_urls and elapsed > 45):
+                    try:
+                        page_html = await page.content()
+                        
+                        # Check if HTML contains video indicators
+                        if '.mp4' in page_html:
+                            result["logs"].append(f"[{elapsed}s] .mp4 found in HTML")
+                        
+                        # Extract with multiple patterns
+                        patterns = [
+                            (r'https://[^"\s<>]*fbcdn\.net[^"\s<>]*\.mp4[^"\s<>]*', "fbcdn mp4"),
+                            (r'https://[^"\s<>]*scontent[^"\s<>]*\.mp4[^"\s<>]*', "scontent mp4"),
+                            (r'https://[^"\s<>]*video[^"\s<>]*\.mp4[^"\s<>]*', "video mp4"),
+                            (r'https://[^"\s<>]*\.mp4[^"\s<>]*', "any mp4"),
+                        ]
+                        
+                        for pattern, name in patterns:
+                            matches = re.findall(pattern, page_html)
+                            if matches:
+                                result["logs"].append(f"[{elapsed}s] Pattern '{name}': {len(matches)} matches")
+                                for url in matches[:3]:  # Limit to first 3
+                                    clean_url = url.replace('&amp;', '&')
+                                    if clean_url not in video_urls:
+                                        video_urls.append(clean_url)
+                                        result["logs"].append(f"  URL: {clean_url[:70]}...")
+                        
+                        # Save HTML snippet around video-related content
+                        if 'video' in page_html.lower() and elapsed > 30:
+                            # Find video-related sections
+                            video_indices = [m.start() for m in re.finditer('video', page_html.lower())]
+                            if video_indices:
+                                snippets = []
+                                for idx in video_indices[:3]:
+                                    snippet = page_html[max(0, idx-100):min(len(page_html), idx+200)]
+                                    snippets.append(snippet.replace('\n', ' '))
+                                result[f"html_video_snippets_{elapsed}s"] = snippets
+                    except Exception as html_err:
+                        result["logs"].append(f"[{elapsed}s] HTML extraction error: {str(html_err)}")
+                
+                # Break if we have enough videos
+                if len(video_urls) >= 4:
+                    result["logs"].append(f"[{elapsed}s] Found 4+ videos, stopping")
+                    break
             
-            video_urls = []
-            for vid in videos:
-                src = await vid.get_attribute('src')
-                if src and src not in video_urls:
-                    video_urls.append(src)
-            result["video_urls_from_elements"] = video_urls[:3]
-            
-            # Extract from HTML
-            page_html = await page.content()
-            
-            # Look for video URLs
-            video_patterns = [
-                r'https://video[^"\s]*\.mp4[^"\s]*',
-                r'https://[^"\s]*fbcdn\.net[^"\s]*\.mp4[^"\s]*',
-            ]
-            
-            for pattern in video_patterns:
-                matches = re.findall(pattern, page_html)
-                if matches:
-                    result[f"matches_{pattern[:20]}"] = len(matches)
-                    for url in matches[:3]:
-                        clean_url = url.replace('&amp;', '&')
-                        if clean_url not in video_urls:
-                            video_urls.append(clean_url)
-            
+            # Final summary
+            result["timestamps"]["finished"] = "done"
             result["total_video_urls"] = len(video_urls)
-            result["video_urls"] = video_urls[:4]
+            result["video_urls"] = video_urls[:6]
+            result["console_logs"] = console_logs[-20:]  # Last 20 console messages
+            
+            # Try to get final page state
+            try:
+                final_text = await page.evaluate("() => document.body.innerText.slice(0, 1000)")
+                result["final_page_text"] = final_text
+            except:
+                pass
             
             await context.close()
             result["success"] = True
+            result["logs"].append(f"Debug complete. Found {len(video_urls)} videos.")
             
         except Exception as e:
             result["error"] = str(e)
+            result["error_type"] = type(e).__name__
             result["success"] = False
+            result["logs"].append(f"ERROR: {str(e)}")
     
     return result
 
