@@ -207,6 +207,106 @@ async def download_file(task_id: str, file_index: int):
         return {"error": "File not found"}
 
 
+@app.get("/debug/test-generate")
+async def debug_test_generate():
+    """Debug: Actually try to generate and capture full flow."""
+    from playwright.async_api import async_playwright
+    import asyncio
+    
+    result = {"logs": []}
+    
+    async with async_playwright() as p:
+        try:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir="./meta_session",
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+            )
+            
+            # Load cookies
+            storage_json = os.environ.get("STORAGE_STATE")
+            if storage_json:
+                storage_state = json.loads(storage_json)
+                await context.add_cookies(storage_state.get("cookies", []))
+            
+            page = await context.new_page()
+            
+            # Navigate
+            result["logs"].append("Navigating...")
+            await page.goto("https://www.meta.ai", timeout=30000)
+            await asyncio.sleep(2)
+            
+            result["url_after_nav"] = page.url
+            result["logs"].append(f"Navigated to: {page.url}")
+            
+            # Check textarea
+            textarea = await page.query_selector('textarea[data-testid="composer-input"]')
+            result["textarea_exists"] = textarea is not None
+            
+            if textarea:
+                result["logs"].append("Textarea found, trying to submit...")
+                
+                # Try multiple methods to submit
+                prompt = "A red apple"
+                
+                # Method 1: Direct evaluation
+                await page.evaluate("""(prompt) => {
+                    const ta = document.querySelector('textarea[data-testid="composer-input"]');
+                    if (ta) {
+                        ta.value = prompt;
+                        ta.dispatchEvent(new Event('input', { bubbles: true }));
+                        return 'set';
+                    }
+                    return 'not found';
+                }""", prompt)
+                
+                await asyncio.sleep(1)
+                
+                # Press Enter
+                await page.keyboard.press("Enter")
+                result["logs"].append("Enter pressed")
+                
+                # Wait for generation
+                await asyncio.sleep(15)
+                result["logs"].append("Waited 15s")
+                
+                result["url_after_submit"] = page.url
+                
+                # Look for images
+                images = await page.query_selector_all('img[src*="fbcdn.net"]')
+                result["fbcdn_images_found"] = len(images)
+                result["logs"].append(f"Found {len(images)} fbcdn images")
+                
+                # Get all image srcs
+                image_urls = []
+                for i, img in enumerate(images[:5]):
+                    src = await img.get_attribute('src')
+                    image_urls.append(src[:80] if src else None)
+                result["image_urls_preview"] = image_urls
+                
+                # Get page HTML around images
+                page_html = await page.content()
+                if 'fbcdn.net' in page_html:
+                    # Extract fbcdn URLs
+                    import re
+                    fbcdn_urls = re.findall(r'https://[^"\s]*fbcdn\.net[^"\s]*', page_html)
+                    result["fbcdn_urls_in_html"] = fbcdn_urls[:5]
+            else:
+                result["logs"].append("Textarea NOT found!")
+                # Capture page content for debugging
+                page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
+                result["page_text_snippet"] = page_text
+            
+            await context.close()
+            result["success"] = True
+            
+        except Exception as e:
+            result["error"] = str(e)
+            result["success"] = False
+    
+    return result
+
+
 @app.get("/debug/meta-page")
 async def debug_meta_page():
     """Debug: Load meta.ai and capture page HTML to see what's happening."""
