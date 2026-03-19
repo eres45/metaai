@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from complete_service import get_service, MetaGenerationService
 import asyncio
 import os
+import json
 
 app = FastAPI(title="Meta AI Generation API")
 task_db = {}  # Task status storage
@@ -214,6 +215,21 @@ async def debug_meta_page():
     
     result = {"logs": []}
     
+    # First check what cookies we have in env
+    storage_json = os.environ.get("STORAGE_STATE")
+    if storage_json:
+        try:
+            storage_state = json.loads(storage_json)
+            cookies = storage_state.get("cookies", [])
+            result["env_cookies_count"] = len(cookies)
+            result["cookie_names"] = [c.get("name") for c in cookies]
+            result["cookie_domains"] = list(set([c.get("domain") for c in cookies if c.get("domain")]))
+        except Exception as e:
+            result["env_cookie_error"] = str(e)
+    else:
+        result["env_cookies_count"] = 0
+        result["storage_state_missing"] = True
+    
     async with async_playwright() as p:
         try:
             context = await p.chromium.launch_persistent_context(
@@ -223,14 +239,19 @@ async def debug_meta_page():
             )
             
             # Load cookies
-            storage_json = os.environ.get("STORAGE_STATE")
             if storage_json:
                 try:
                     storage_state = json.loads(storage_json)
-                    await context.add_cookies(storage_state.get("cookies", []))
-                    result["cookies_loaded"] = len(storage_state.get("cookies", []))
+                    cookies = storage_state.get("cookies", [])
+                    await context.add_cookies(cookies)
+                    result["cookies_added"] = len(cookies)
                 except Exception as e:
-                    result["cookie_error"] = str(e)
+                    result["cookie_add_error"] = str(e)
+            
+            # Get cookies that are actually in context
+            cookies_after = await context.cookies()
+            result["cookies_in_context"] = len(cookies_after)
+            result["cookie_names_in_context"] = [c.get("name") for c in cookies_after]
             
             page = await context.new_page()
             
