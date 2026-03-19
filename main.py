@@ -210,10 +210,13 @@ async def download_file(task_id: str, file_index: int):
 async def debug_env():
     """Debug endpoint to check environment variables."""
     meta_cookies = os.environ.get("META_COOKIES", "NOT SET")
+    storage_state = os.environ.get("STORAGE_STATE", "NOT SET")
     return {
         "meta_cookies_set": meta_cookies != "NOT SET",
         "meta_cookies_length": len(meta_cookies) if meta_cookies != "NOT SET" else 0,
-        "meta_cookies_preview": meta_cookies[:100] + "..." if meta_cookies != "NOT SET" and len(meta_cookies) > 100 else meta_cookies
+        "storage_state_set": storage_state != "NOT SET",
+        "storage_state_length": len(storage_state) if storage_state != "NOT SET" else 0,
+        "active_cookie_source": "STORAGE_STATE" if storage_state != "NOT SET" else ("META_COOKIES" if meta_cookies != "NOT SET" else "NONE")
     }
 
 
