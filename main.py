@@ -207,6 +207,99 @@ async def download_file(task_id: str, file_index: int):
         return {"error": "File not found"}
 
 
+@app.get("/debug/test-video")
+async def debug_test_video(prompt: str = "A cat playing piano"):
+    """Debug: Test video generation and capture what happens."""
+    from playwright.async_api import async_playwright
+    import asyncio
+    import re
+    
+    result = {"logs": []}
+    
+    async with async_playwright() as p:
+        try:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir="./meta_session",
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+            )
+            
+            # Load cookies
+            storage_json = os.environ.get("STORAGE_STATE")
+            if storage_json:
+                storage_state = json.loads(storage_json)
+                await context.add_cookies(storage_state.get("cookies", []))
+            
+            page = await context.new_page()
+            
+            # Navigate
+            result["logs"].append("Navigating to meta.ai...")
+            await page.goto("https://www.meta.ai", timeout=30000)
+            await asyncio.sleep(2)
+            result["url_after_nav"] = page.url
+            
+            # Use video generation prefix
+            video_prompt = f"Generate a video: {prompt}"
+            result["logs"].append(f"Submitting: {video_prompt}")
+            
+            await page.evaluate("""(prompt) => {
+                const ta = document.querySelector('textarea[data-testid="composer-input"]');
+                if (ta) {
+                    ta.value = prompt;
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }""", video_prompt)
+            
+            await asyncio.sleep(1)
+            await page.keyboard.press("Enter")
+            result["logs"].append("Enter pressed")
+            
+            # Wait for video generation
+            await asyncio.sleep(10)
+            result["url_after_submit"] = page.url
+            
+            # Check for videos
+            videos = await page.query_selector_all('video[src*="fbcdn.net"], video[src*="video"]')
+            result["video_elements_found"] = len(videos)
+            
+            video_urls = []
+            for vid in videos:
+                src = await vid.get_attribute('src')
+                if src and src not in video_urls:
+                    video_urls.append(src)
+            result["video_urls_from_elements"] = video_urls[:3]
+            
+            # Extract from HTML
+            page_html = await page.content()
+            
+            # Look for video URLs
+            video_patterns = [
+                r'https://video[^"\s]*\.mp4[^"\s]*',
+                r'https://[^"\s]*fbcdn\.net[^"\s]*\.mp4[^"\s]*',
+            ]
+            
+            for pattern in video_patterns:
+                matches = re.findall(pattern, page_html)
+                if matches:
+                    result[f"matches_{pattern[:20]}"] = len(matches)
+                    for url in matches[:3]:
+                        clean_url = url.replace('&amp;', '&')
+                        if clean_url not in video_urls:
+                            video_urls.append(clean_url)
+            
+            result["total_video_urls"] = len(video_urls)
+            result["video_urls"] = video_urls[:4]
+            
+            await context.close()
+            result["success"] = True
+            
+        except Exception as e:
+            result["error"] = str(e)
+            result["success"] = False
+    
+    return result
+
+
 @app.get("/debug/test-generate")
 async def debug_test_generate():
     """Debug: Actually try to generate and capture full flow."""
