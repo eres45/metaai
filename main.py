@@ -251,29 +251,49 @@ async def debug_test_video(prompt: str = "A cat playing piano"):
             result["timestamps"]["navigate_start"] = "start"
             result["logs"].append("Navigating to meta.ai...")
             await page.goto("https://www.meta.ai", timeout=30000)
-            await asyncio.sleep(2)
+            await page.wait_for_load_state("networkidle")
+            await asyncio.sleep(3)
             result["timestamps"]["navigate_end"] = "done"
             result["url_after_nav"] = page.url
             result["logs"].append(f"Navigated to: {page.url}")
             
-            # Check if logged in
-            page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
-            result["page_text_after_nav"] = page_text
-            result["is_logged_in"] = "log in" not in page_text.lower() and "sign up" not in page_text.lower()
-            result["logs"].append(f"Logged in: {result['is_logged_in']}")
+            # Check if logged in - with error handling
+            try:
+                page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
+                result["page_text_after_nav"] = page_text
+                result["is_logged_in"] = "log in" not in page_text.lower() and "sign up" not in page_text.lower()
+                result["logs"].append(f"Logged in: {result['is_logged_in']}")
+            except Exception as eval_err:
+                result["logs"].append(f"Warning: Could not evaluate page text: {str(eval_err)}")
+                result["is_logged_in"] = False
             
-            # Find and check textarea
-            textarea = await page.query_selector('textarea[data-testid="composer-input"]')
+            # Find and check textarea - with retry
+            textarea = None
+            for attempt in range(3):
+                try:
+                    textarea = await page.query_selector('textarea[data-testid="composer-input"]')
+                    if textarea:
+                        break
+                    await asyncio.sleep(1)
+                except:
+                    pass
+            
             result["textarea_found"] = textarea is not None
             if textarea:
-                placeholder = await textarea.get_attribute('placeholder')
-                result["textarea_placeholder"] = placeholder
-                result["logs"].append(f"Textarea found, placeholder: {placeholder}")
+                try:
+                    placeholder = await textarea.get_attribute('placeholder')
+                    result["textarea_placeholder"] = placeholder
+                    result["logs"].append(f"Textarea found, placeholder: {placeholder}")
+                except:
+                    result["logs"].append("Textarea found but could not get placeholder")
             else:
                 result["logs"].append("ERROR: Textarea not found!")
                 # List all textareas on page
-                all_textareas = await page.query_selector_all('textarea')
-                result["all_textareas_count"] = len(all_textareas)
+                try:
+                    all_textareas = await page.query_selector_all('textarea')
+                    result["all_textareas_count"] = len(all_textareas)
+                except:
+                    pass
             
             # Submit prompt
             video_prompt = f"Generate a video: {prompt}"
