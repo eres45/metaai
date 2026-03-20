@@ -207,6 +207,102 @@ async def download_file(task_id: str, file_index: int):
         return {"error": "File not found"}
 
 
+@app.post("/generate/video/v2")
+async def generate_video_v2_direct(
+    prompt: str = Query(..., description="Video generation prompt")
+):
+    """Generate video using working code from debug endpoint."""
+    from playwright.async_api import async_playwright
+    import asyncio
+    import re
+    
+    result = {
+        "steps": [],
+        "video_urls": [],
+        "page_info": {}
+    }
+    
+    async with async_playwright() as p:
+        try:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir="./meta_session",
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+            )
+            
+            # Load cookies
+            storage_json = os.environ.get("STORAGE_STATE")
+            if storage_json:
+                storage_state = json.loads(storage_json)
+                await context.add_cookies(storage_state.get("cookies", []))
+                result["steps"].append(f"Loaded {len(storage_state.get('cookies', []))} cookies")
+            
+            page = await context.new_page()
+            
+            # Navigate
+            await page.goto("https://www.meta.ai", timeout=30000)
+            await asyncio.sleep(3)
+            result["steps"].append(f"Navigated to {page.url}")
+            
+            # Check login
+            page_text = await page.evaluate("() => document.body.innerText.slice(0, 300)")
+            result["page_info"]["is_logged_in"] = "log in" not in page_text.lower()
+            result["steps"].append(f"Logged in: {result['page_info']['is_logged_in']}")
+            
+            # Submit prompt
+            video_prompt = f"Generate a video: {prompt}"
+            await page.evaluate("""(prompt) => {
+                const ta = document.querySelector('textarea[data-testid="composer-input"]');
+                if (ta) {
+                    ta.value = prompt;
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }""", video_prompt)
+            await asyncio.sleep(1)
+            await page.keyboard.press("Enter")
+            result["steps"].append("Prompt submitted")
+            
+            # Wait longer for video generation (videos take 60-120s)
+            result["steps"].append("Waiting 90s for video generation...")
+            await asyncio.sleep(90)
+            
+            # Get current URL
+            result["page_info"]["final_url"] = page.url
+            
+            # Check for video elements
+            videos = await page.query_selector_all('video')
+            result["page_info"]["video_elements_count"] = len(videos)
+            
+            for vid in videos[:3]:
+                src = await vid.get_attribute('src')
+                if src and '.mp4' in src:
+                    result["video_urls"].append(src)
+                    result["steps"].append(f"Found video: {src[:60]}...")
+            
+            # Extract from HTML
+            page_html = await page.content()
+            
+            # Look for any mp4 URLs
+            mp4_matches = re.findall(r'https://[^"\s<>]*\.mp4[^"\s<>]*', page_html)
+            result["page_info"]["mp4_matches_in_html"] = len(mp4_matches)
+            
+            for url in mp4_matches[:5]:
+                clean_url = url.replace('&amp;', '&')
+                if clean_url not in result["video_urls"]:
+                    result["video_urls"].append(clean_url)
+                    result["steps"].append(f"Found in HTML: {clean_url[:60]}...")
+            
+            await context.close()
+            result["success"] = len(result["video_urls"]) > 0
+            result["steps"].append(f"Done. Total videos: {len(result['video_urls'])}")
+            
+        except Exception as e:
+            result["error"] = str(e)
+            result["success"] = False
+    
+    return result
+
+
 @app.get("/debug/video-simple")
 async def debug_video_simple(prompt: str = "A cat playing piano"):
     """Simple debug: Focus on video URL extraction only."""
