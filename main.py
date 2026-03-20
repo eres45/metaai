@@ -886,6 +886,46 @@ async def debug_env():
     }
 
 
+@app.get("/download-video")
+async def download_video_proxy(url: str = Query(..., description="Video URL to download")):
+    """Download video from URL using cookies and return as stream."""
+    import aiohttp
+    import asyncio
+    
+    # Get cookies from environment
+    storage_json = os.environ.get("STORAGE_STATE")
+    cookies = {}
+    if storage_json:
+        try:
+            storage_state = json.loads(storage_json)
+            for cookie in storage_state.get("cookies", []):
+                if cookie.get("name") and cookie.get("value"):
+                    cookies[cookie["name"]] = cookie["value"]
+        except:
+            pass
+    
+    try:
+        async with aiohttp.ClientSession(cookies=cookies) as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as response:
+                if response.status != 200:
+                    return {"error": f"Failed to download: HTTP {response.status}"}
+                
+                content = await response.read()
+                
+                from fastapi.responses import StreamingResponse
+                import io
+                
+                return StreamingResponse(
+                    io.BytesIO(content),
+                    media_type="video/mp4",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="video_{hash(url) % 10000}.mp4"'
+                    }
+                )
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
