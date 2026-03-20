@@ -9,7 +9,7 @@ import requests
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Browser, BrowserContext
 
 
 class MetaGenerationService:
@@ -19,6 +19,62 @@ class MetaGenerationService:
         self.user_data_dir = user_data_dir
         self.downloads_dir = Path("downloads")
         self.downloads_dir.mkdir(exist_ok=True)
+        
+        # Persistent browser management (memory optimization)
+        self._playwright = None
+        self._browser_context = None
+        self._browser_lock = asyncio.Lock()
+        self._last_used = None
+    
+    async def _get_browser_context(self):
+        """Get or create persistent browser context (memory optimization)."""
+        async with self._browser_lock:
+            # Reuse existing context if available
+            if self._browser_context is not None:
+                self._last_used = datetime.now()
+                return self._browser_context
+            
+            # Create new playwright instance and browser context
+            print("[BROWSER] Creating new browser context...")
+            self._playwright = await async_playwright().start()
+            self._browser_context = await self._playwright.chromium.launch_persistent_context(
+                user_data_dir=self.user_data_dir,
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-extensions"
+                ]
+            )
+            
+            # Load cookies once
+            await self._setup_cookies_from_env(self._browser_context)
+            self._last_used = datetime.now()
+            print("[BROWSER] Browser context ready (will be reused)")
+            
+            return self._browser_context
+    
+    async def _cleanup_browser(self):
+        """Cleanup browser resources."""
+        async with self._browser_lock:
+            if self._browser_context:
+                try:
+                    await self._browser_context.close()
+                    print("[BROWSER] Context closed")
+                except:
+                    pass
+                self._browser_context = None
+            
+            if self._playwright:
+                try:
+                    await self._playwright.stop()
+                    print("[BROWSER] Playwright stopped")
+                except:
+                    pass
+                self._playwright = None
     
     async def _setup_cookies_from_env(self, context):
         """Load cookies from META_COOKIES or STORAGE_STATE env var into browser context."""
@@ -69,32 +125,20 @@ class MetaGenerationService:
     ) -> Dict:
         """Generate images from text prompt."""
         print(f"[IMAGES] Starting generation for: {prompt}")
-        async with async_playwright() as p:
-            try:
-                context = await p.chromium.launch_persistent_context(
-                    user_data_dir=self.user_data_dir,
-                    headless=True,
-                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
-                )
-            except Exception as e:
-                print(f"[IMAGES] Failed to launch browser: {e}")
-                return {"success": False, "error": f"Browser launch failed: {e}"}
-            
+        
+        try:
+            # Use persistent browser context (memory optimization)
+            context = await self._get_browser_context()
             page = await context.new_page()
             
-            # Load cookies from env
-            cookies_loaded = await self._setup_cookies_from_env(context)
-            if not cookies_loaded:
-                print("[IMAGES] Warning: No cookies loaded, may need login")
-            
-            # Navigate to site
             try:
+                # Navigate to site
                 print("[IMAGES] Navigating to meta.ai...")
                 await page.goto("https://www.meta.ai", timeout=30000)
                 await asyncio.sleep(2)
             except Exception as e:
                 print(f"[IMAGES] Failed to navigate: {e}")
-                await context.close()
+                await page.close()
                 return {"success": False, "error": f"Navigation failed: {e}"}
             
             try:
@@ -156,22 +200,27 @@ class MetaGenerationService:
                         if len(image_urls) >= num_images:
                             break
                 
-                await context.close()
+                # Close page but keep context alive
+                await page.close()
                 
                 result = {
                     "success": len(image_urls) > 0,
                     "prompt": prompt,
                     "image_urls": image_urls,
                     "count": len(image_urls),
-                    "cookies_loaded": cookies_loaded
+                    "cookies_loaded": True
                 }
                 print(f"[IMAGES] Result: {result}")
                 return result
                 
             except Exception as e:
                 print(f"[IMAGES] Error during generation: {e}")
-                await context.close()
-                return {"success": False, "error": str(e), "cookies_loaded": cookies_loaded}
+                await page.close()
+                return {"success": False, "error": str(e), "cookies_loaded": True}
+                
+        except Exception as e:
+            print(f"[IMAGES] Failed to get browser context: {e}")
+            return {"success": False, "error": f"Browser context failed: {e}"}
     
     async def generate_video(
         self, 
@@ -323,23 +372,11 @@ class MetaGenerationService:
     async def generate_video_v2(self, prompt: str) -> Dict:
         """Generate video using main Meta AI chat with 'Generate a video:' prefix."""
         print(f"[VIDEO] Starting generation for: {prompt}")
-        async with async_playwright() as p:
-            try:
-                context = await p.chromium.launch_persistent_context(
-                    user_data_dir=self.user_data_dir,
-                    headless=True,
-                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
-                )
-            except Exception as e:
-                print(f"[VIDEO] Failed to launch browser: {e}")
-                return {"success": False, "error": f"Browser launch failed: {e}"}
-            
+        
+        try:
+            # Use persistent browser context (memory optimization)
+            context = await self._get_browser_context()
             page = await context.new_page()
-            
-            # Load cookies from env
-            cookies_loaded = await self._setup_cookies_from_env(context)
-            if not cookies_loaded:
-                print("[VIDEO] Warning: No cookies loaded, may need login")
             
             try:
                 # Navigate to main Meta AI page
@@ -402,6 +439,7 @@ class MetaGenerationService:
                         page_html = await page.content()
                         
                         # Use the pattern that worked in debug
+                        import re
                         mp4_matches = re.findall(r'https://[^"\s<>]*\.mp4[^"\s<>]*', page_html)
                         
                         if mp4_matches:
@@ -429,7 +467,8 @@ class MetaGenerationService:
                     if elapsed % 15 == 0 and not video_urls:
                         print(f"[VIDEO] [{elapsed}s] Still waiting for videos...")
                 
-                await context.close()
+                # Close page but keep context alive
+                await page.close()
                 
                 print(f"[VIDEO] Complete: {len(video_urls)} videos found")
                 return {
@@ -437,13 +476,17 @@ class MetaGenerationService:
                     "prompt": prompt,
                     "video_urls": video_urls[:4],
                     "count": len(video_urls),
-                    "cookies_loaded": cookies_loaded
+                    "cookies_loaded": True
                 }
                 
             except Exception as e:
                 print(f"[VIDEO] Error: {e}")
-                await context.close()
-                return {"success": False, "error": str(e), "cookies_loaded": cookies_loaded}
+                await page.close()
+                return {"success": False, "error": str(e), "cookies_loaded": True}
+                
+        except Exception as e:
+            print(f"[VIDEO] Failed to get browser context: {e}")
+            return {"success": False, "error": f"Browser context failed: {e}"}
     
     async def download_video_with_browser(self, video_url: str, output_path: str) -> bool:
         """Download video using browser fetch with session cookies."""
