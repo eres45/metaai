@@ -261,40 +261,61 @@ async def generate_video_v2_direct(
             await asyncio.sleep(1)
             await page.keyboard.press("Enter")
             result["steps"].append("Prompt submitted")
+            start_time = asyncio.get_event_loop().time()
             
-            # Wait longer for video generation (videos take 60-120s)
-            result["steps"].append("Waiting 90s for video generation...")
-            await asyncio.sleep(90)
+            # POLLING: Check every 3 seconds, max 90 seconds, exit early when found
+            result["steps"].append("Polling for videos (max 90s, checking every 3s)...")
+            max_wait = 90
+            check_interval = 3
+            min_wait = 15  # Minimum wait before checking (generation takes time)
             
-            # Get current URL
+            # Initial minimum wait
+            await asyncio.sleep(min_wait)
+            elapsed = min_wait
+            
+            while elapsed < max_wait:
+                # Check for videos in HTML
+                page_html = await page.content()
+                mp4_matches = re.findall(r'https://[^"\s<>]*\.mp4[^"\s<>]*', page_html)
+                
+                if mp4_matches:
+                    result["steps"].append(f"[{elapsed}s] Found {len(mp4_matches)} .mp4 URLs in HTML")
+                    for url in mp4_matches[:5]:
+                        clean_url = url.replace('&amp;', '&')
+                        if clean_url not in result["video_urls"]:
+                            result["video_urls"].append(clean_url)
+                            result["steps"].append(f"Found: {clean_url[:60]}...")
+                    
+                    # Exit early if we have videos
+                    if len(result["video_urls"]) >= 3:
+                        result["steps"].append(f"[{elapsed}s] Found 3+ videos, exiting early!")
+                        break
+                
+                # Also check video elements
+                videos = await page.query_selector_all('video')
+                if videos:
+                    result["page_info"]["video_elements_count"] = len(videos)
+                    for vid in videos[:3]:
+                        src = await vid.get_attribute('src')
+                        if src and '.mp4' in src and src not in result["video_urls"]:
+                            result["video_urls"].append(src)
+                            result["steps"].append(f"Found video element: {src[:60]}...")
+                
+                # Wait before next check
+                await asyncio.sleep(check_interval)
+                elapsed += check_interval
+                
+                # Log progress every 15 seconds
+                if elapsed % 15 == 0:
+                    result["steps"].append(f"[{elapsed}s] Still polling...")
+            
+            result["total_elapsed_time"] = elapsed
             result["page_info"]["final_url"] = page.url
-            
-            # Check for video elements
-            videos = await page.query_selector_all('video')
-            result["page_info"]["video_elements_count"] = len(videos)
-            
-            for vid in videos[:3]:
-                src = await vid.get_attribute('src')
-                if src and '.mp4' in src:
-                    result["video_urls"].append(src)
-                    result["steps"].append(f"Found video: {src[:60]}...")
-            
-            # Extract from HTML
-            page_html = await page.content()
-            
-            # Look for any mp4 URLs
-            mp4_matches = re.findall(r'https://[^"\s<>]*\.mp4[^"\s<>]*', page_html)
-            result["page_info"]["mp4_matches_in_html"] = len(mp4_matches)
-            
-            for url in mp4_matches[:5]:
-                clean_url = url.replace('&amp;', '&')
-                if clean_url not in result["video_urls"]:
-                    result["video_urls"].append(clean_url)
-                    result["steps"].append(f"Found in HTML: {clean_url[:60]}...")
+            result["page_info"]["mp4_matches_in_html"] = len(result["video_urls"])
             
             await context.close()
             result["success"] = len(result["video_urls"]) > 0
-            result["steps"].append(f"Done. Total videos: {len(result['video_urls'])}")
+            result["steps"].append(f"Done in {elapsed}s. Total videos: {len(result['video_urls'])}")
             
         except Exception as e:
             result["error"] = str(e)
@@ -356,49 +377,65 @@ async def debug_video_simple(prompt: str = "A cat playing piano"):
             await page.keyboard.press("Enter")
             result["steps"].append("Prompt submitted")
             
-            # Wait longer for video generation (videos take 60-120s)
-            result["steps"].append("Waiting 90s for video generation...")
-            await asyncio.sleep(90)
+            # POLLING: Check every 2 seconds, max 60 seconds, exit early when found
+            result["steps"].append("Polling for images (max 60s, checking every 2s)...")
+            max_wait = 60
+            check_interval = 2
+            min_wait = 8  # Minimum wait before checking (generation takes time)
+            image_urls = []
             
-            # Get current URL
+            # Initial minimum wait
+            await asyncio.sleep(min_wait)
+            elapsed = min_wait
+            
+            while elapsed < max_wait:
+                # Extract from HTML - most reliable method
+                page_html = await page.content()
+                
+                # Check for fbcdn image URLs in HTML
+                fbcdn_matches = re.findall(r'https://[^"\s<>]*fbcdn\.net[^"\s<>]*\.(?:jpg|jpeg|png|webp)[^"\s<>]*', page_html)
+                
+                if fbcdn_matches:
+                    result["steps"].append(f"[{elapsed}s] Found {len(fbcdn_matches)} fbcdn URLs in HTML")
+                    for url in fbcdn_matches[:num_images]:
+                        clean_url = url.replace('&amp;', '&')
+                        if clean_url not in image_urls:
+                            image_urls.append(clean_url)
+                            result["steps"].append(f"Found: {clean_url[:60]}...")
+                    
+                    # Exit early if we have enough images
+                    if len(image_urls) >= num_images:
+                        result["steps"].append(f"[{elapsed}s] Found {num_images}+ images, exiting early!")
+                        break
+                
+                # Also check image elements
+                images = await page.query_selector_all('img[src*="fbcdn.net"]')
+                if images:
+                    for img in images[:num_images]:
+                        src = await img.get_attribute('src')
+                        if src and src not in image_urls:
+                            image_urls.append(src)
+                            result["steps"].append(f"Found img element: {src[:60]}...")
+                    
+                    if len(image_urls) >= num_images:
+                        break
+                
+                # Wait before next check
+                await asyncio.sleep(check_interval)
+                elapsed += check_interval
+                
+                # Log progress every 10 seconds
+                if elapsed % 10 == 0:
+                    result["steps"].append(f"[{elapsed}s] Still polling...")
+            
+            result["image_urls"] = image_urls[:num_images]
+            result["total_elapsed_time"] = elapsed
             result["page_info"]["final_url"] = page.url
-            
-            # Check for video elements
-            videos = await page.query_selector_all('video')
-            result["page_info"]["video_elements_count"] = len(videos)
-            
-            for vid in videos[:3]:
-                src = await vid.get_attribute('src')
-                if src and '.mp4' in src:
-                    result["video_urls"].append(src)
-                    result["steps"].append(f"Found video: {src[:60]}...")
-            
-            # Extract from HTML
-            page_html = await page.content()
-            
-            # Look for any mp4 URLs
-            mp4_matches = re.findall(r'https://[^"\s<>]*\.mp4[^"\s<>]*', page_html)
-            result["page_info"]["mp4_matches_in_html"] = len(mp4_matches)
-            
-            for url in mp4_matches[:5]:
-                clean_url = url.replace('&amp;', '&')
-                if clean_url not in result["video_urls"]:
-                    result["video_urls"].append(clean_url)
-                    result["steps"].append(f"Found in HTML: {clean_url[:60]}...")
-            
-            # Get chat history text to see if video was mentioned
-            try:
-                chat_text = await page.evaluate("""() => {
-                    const messages = document.querySelectorAll('[data-testid="message"], .message, .chat-message');
-                    return Array.from(messages).slice(-5).map(m => m.innerText).join(' | ');
-                }""")
-                result["page_info"]["recent_chat"] = chat_text[:200] if chat_text else "No chat found"
-            except:
-                result["page_info"]["recent_chat"] = "Could not extract chat"
+            result["page_info"]["fbcdn_matches_in_html"] = len(image_urls)
             
             await context.close()
-            result["success"] = True
-            result["steps"].append(f"Done. Total videos: {len(result['video_urls'])}")
+            result["success"] = len(image_urls) > 0
+            result["steps"].append(f"Done in {elapsed}s. Total images: {len(image_urls)}")
             
         except Exception as e:
             result["error"] = str(e)
