@@ -981,10 +981,3 @@ async def health_check():
     """Health check endpoint - supports both GET and HEAD."""
     return {"status": "ok", "service": "Meta AI Generation API"}
 
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup browser resources on shutdown."""
-    print("[SHUTDOWN] Cleaning up browser resources...")
-    await service._cleanup_browser()
-    print("[SHUTDOWN] Cleanup complete")
