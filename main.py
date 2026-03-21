@@ -1,22 +1,11 @@
 from fastapi import FastAPI, BackgroundTasks, Query
 from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
 from complete_service import get_service, MetaGenerationService
 import asyncio
 import os
 import json
 
 app = FastAPI(title="Meta AI Generation API")
-
-# Add CORS middleware to allow requests from any origin
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (or specify ["https://www.waspai.in"])
-    allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers
-)
-
 task_db = {}  # Task status storage
 
 # Initialize service
@@ -218,7 +207,6 @@ async def download_file(task_id: str, file_index: int):
         return {"error": "File not found"}
 
 
-@app.get("/generate/video/v2")
 @app.post("/generate/video/v2")
 async def generate_video_v2_direct(
     prompt: str = Query(..., description="Video generation prompt")
@@ -976,8 +964,6 @@ async def download_video_proxy(url: str = Query(..., description="Video URL to d
 
 
 @app.get("/health")
-@app.head("/health")
 async def health_check():
-    """Health check endpoint - supports both GET and HEAD."""
+    """Health check endpoint."""
     return {"status": "ok", "service": "Meta AI Generation API"}
-
