@@ -218,7 +218,8 @@ async def download_file(task_id: str, file_index: int):
         return {"error": "File not found"}
 
 
-@app.api_route("/generate/video/v2", methods=["GET", "POST"])
+@app.get("/generate/video/v2")
+@app.post("/generate/video/v2")
 async def generate_video_v2_direct(
     prompt: str = Query(..., description="Video generation prompt")
 ):
@@ -974,7 +975,8 @@ async def download_video_proxy(url: str = Query(..., description="Video URL to d
         return {"error": str(e)}
 
 
-@app.api_route("/health", methods=["GET", "HEAD"])
+@app.get("/health")
+@app.head("/health")
 async def health_check():
     """Health check endpoint - supports both GET and HEAD."""
     return {"status": "ok", "service": "Meta AI Generation API"}
