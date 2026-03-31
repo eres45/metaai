@@ -120,9 +120,32 @@ class MetaGenerationService:
                 await page.keyboard.press("Enter")
                 print("[IMAGES] Prompt submitted")
                 
-                # Wait for generation
-                print("[IMAGES] Waiting 15s for generation...")
-                await asyncio.sleep(15)
+                # Wait for generation with polling
+                print("[IMAGES] Waiting for generation (max 30s)...")
+                max_wait = 30
+                check_interval = 3
+                elapsed = 0
+                
+                while elapsed < max_wait:
+                    await asyncio.sleep(check_interval)
+                    elapsed += check_interval
+                    
+                    # Check if images appeared
+                    images = await page.query_selector_all('img[src*="fbcdn.net"]')
+                    fbcdn_count = 0
+                    for img in images:
+                        src = await img.get_attribute('src')
+                        if src and 'rsrc.php' not in src:
+                            fbcdn_count += 1
+                    
+                    if fbcdn_count >= num_images:
+                        print(f"[IMAGES] Found {fbcdn_count} images after {elapsed}s")
+                        break
+                    
+                    if elapsed % 9 == 0:
+                        print(f"[IMAGES] Still waiting... ({elapsed}s, found {fbcdn_count} images)")
+                
+                print(f"[IMAGES] Finished waiting after {elapsed}s")
                 
                 # Extract image URLs - look for images from fbcdn (Facebook CDN)
                 print("[IMAGES] Looking for images...")
@@ -134,9 +157,10 @@ class MetaGenerationService:
                 image_urls = []
                 for i, img in enumerate(images[:num_images * 3]):
                     src = await img.get_attribute('src')
-                    print(f"[IMAGES] Image {i}: {src[:60] if src else 'None'}...")
-                    # Filter out rsrc.php (logos)
-                    if src and src not in image_urls and 'rsrc.php' not in src:
+                    if src:
+                        print(f"[IMAGES] Image {i}: {src[:60] if src else 'None'}...")
+                    # Filter out rsrc.php (logos) and scontent (generated images)
+                    if src and src not in image_urls and 'rsrc.php' not in src and 'scontent' in src:
                         image_urls.append(src)
                         if len(image_urls) >= num_images:
                             break
@@ -147,7 +171,7 @@ class MetaGenerationService:
                     page_html = await page.content()
                     import re
                     # Look for scontent fbcdn URLs (the generated images)
-                    fbcdn_urls = re.findall(r'https://scontent[^"\s]*fbcdn\.net[^"\s]*\.jpeg[^"\s]*', page_html)
+                    fbcdn_urls = re.findall(r'https://scontent[^"\s]*fbcdn\.net[^"\s]*\.(?:jpeg|jpg|png)[^"\s]*', page_html)
                     print(f"[IMAGES] Found {len(fbcdn_urls)} URLs in HTML")
                     for url in fbcdn_urls:
                         clean_url = url.replace('&amp;', '&')
