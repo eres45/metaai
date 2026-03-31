@@ -69,44 +69,48 @@ class MetaGenerationService:
         num_images: int = 4
     ) -> Dict:
         """Generate images from text prompt."""
-        print(f"[IMAGES] Starting generation for: {prompt}")
+        print(f"[IMAGES] ========== STARTING IMAGE GENERATION ==========")
+        print(f"[IMAGES] Prompt: {prompt}, Num: {num_images}")
+        
         async with async_playwright() as p:
             try:
+                print(f"[IMAGES] Step 1: Launching browser...")
                 context = await p.chromium.launch_persistent_context(
                     user_data_dir=self.user_data_dir,
                     headless=True,
                     args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
                 )
+                print(f"[IMAGES] Step 1: ✅ Browser launched")
             except Exception as e:
-                print(f"[IMAGES] Failed to launch browser: {e}")
+                print(f"[IMAGES] Step 1: ❌ Browser launch failed: {e}")
                 return {"success": False, "error": f"Browser launch failed: {e}"}
             
             page = await context.new_page()
+            print(f"[IMAGES] Step 2: Page created")
             
             # Load cookies from env
+            print(f"[IMAGES] Step 3: Loading cookies...")
             cookies_loaded = await self._setup_cookies_from_env(context)
-            if not cookies_loaded:
-                print("[IMAGES] Warning: No cookies loaded, may need login")
+            print(f"[IMAGES] Step 3: Cookies loaded: {cookies_loaded}")
             
             # Navigate to site
             try:
-                print("[IMAGES] Navigating to meta.ai...")
-                await page.goto("https://www.meta.ai", timeout=20000)  # 20 second timeout
+                print("[IMAGES] Step 4: Navigating to meta.ai...")
+                await page.goto("https://www.meta.ai", timeout=20000)
                 await asyncio.sleep(2)
+                print(f"[IMAGES] Step 4: ✅ Navigated to {page.url}")
             except Exception as e:
-                print(f"[IMAGES] Failed to navigate: {e}")
+                print(f"[IMAGES] Step 4: ❌ Navigation failed: {e}")
                 await context.close()
                 return {"success": False, "error": f"Navigation failed: {e}"}
             
             try:
-                print(f"[IMAGES] Page loaded: {page.url}")
-                
-                # Check if logged in
+                print(f"[IMAGES] Step 5: Checking page content...")
                 page_text = await page.evaluate("() => document.body.innerText.slice(0, 500)")
-                print(f"[IMAGES] Page content: {page_text[:200]}...")
+                print(f"[IMAGES] Step 5: Page content preview: {page_text[:100]}...")
                 
                 # Submit prompt
-                print(f"[IMAGES] Submitting prompt: {prompt}")
+                print(f"[IMAGES] Step 6: Submitting prompt...")
                 await page.evaluate("""(prompt) => {
                     const textarea = document.querySelector('textarea[data-testid="composer-input"]');
                     if (textarea) {
@@ -118,95 +122,92 @@ class MetaGenerationService:
                     }
                 }""", prompt)
                 await page.keyboard.press("Enter")
-                print("[IMAGES] Prompt submitted")
+                print("[IMAGES] Step 6: ✅ Prompt submitted")
                 
-                # Wait for generation with HTML polling (like video generation)
-                print("[IMAGES] Polling for images (max 45s, checking every 3s)...")
+                # Wait for generation with HTML polling
+                print("[IMAGES] Step 7: Polling for images (max 45s, checking every 3s)...")
                 max_wait = 45
                 check_interval = 3
-                min_wait = 10  # Minimum wait before checking
+                min_wait = 10
                 
-                # Initial minimum wait
                 await asyncio.sleep(min_wait)
                 elapsed = min_wait
+                print(f"[IMAGES] Step 7: Initial wait of {min_wait}s complete")
                 
                 image_urls = []
+                poll_count = 0
+                
                 while elapsed < max_wait:
-                    # Check for images in HTML (most reliable)
-                    page_html = await page.content()
+                    poll_count += 1
+                    print(f"[IMAGES] Poll #{poll_count} at {elapsed}s...")
                     
-                    # Multiple patterns to catch all possible image URLs
+                    # Check for images in HTML
+                    page_html = await page.content()
+                    html_length = len(page_html)
+                    print(f"[IMAGES] HTML length: {html_length} chars")
+                    
+                    # Multiple patterns
                     patterns = [
                         r'https://scontent[^"\s]*?fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
                         r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t0[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
                         r'https://[^"\s]*?\.fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
                     ]
                     
-                    for pattern in patterns:
+                    for idx, pattern in enumerate(patterns):
                         fbcdn_matches = re.findall(pattern, page_html)
                         if fbcdn_matches:
-                            print(f"[IMAGES] [{elapsed}s] Found {len(fbcdn_matches)} URLs with pattern")
-                            for url in fbcdn_matches:
+                            print(f"[IMAGES] Pattern {idx+1} found {len(fbcdn_matches)} URLs")
+                            for url in fbcdn_matches[:5]:  # Show first 5
                                 clean_url = url.replace('&amp;', '&')
-                                print(f"[IMAGES] Checking: {clean_url[:100]}...")
-                                # Only filter out obvious non-images
+                                print(f"[IMAGES]   Checking: {clean_url[:120]}...")
+                                
                                 if clean_url not in image_urls and 'rsrc.php' not in clean_url:
                                     image_urls.append(clean_url)
-                                    print(f"[IMAGES] ✅ Added: {clean_url[:80]}...")
+                                    print(f"[IMAGES]   ✅ ADDED to results!")
                                     if len(image_urls) >= num_images:
                                         break
                                 elif 'rsrc.php' in clean_url:
-                                    print(f"[IMAGES] ❌ Skipped (rsrc.php)")
+                                    print(f"[IMAGES]   ❌ Skipped (rsrc.php - logo)")
+                                else:
+                                    print(f"[IMAGES]   ⚠️ Skipped (duplicate)")
                         if len(image_urls) >= num_images:
                             break
                     
-                    # Exit early if we have enough images
                     if len(image_urls) >= num_images:
-                        print(f"[IMAGES] [{elapsed}s] Found {num_images}+ images, exiting early!")
+                        print(f"[IMAGES] ✅ Found {num_images}+ images at {elapsed}s, exiting!")
                         break
                     
-                    # Wait before next check
+                    print(f"[IMAGES] Current count: {len(image_urls)}/{num_images}")
+                    
                     await asyncio.sleep(check_interval)
                     elapsed += check_interval
-                    
-                    # Log progress every 15 seconds
-                    if elapsed % 15 == 0:
-                        print(f"[IMAGES] [{elapsed}s] Still polling... (found {len(image_urls)} images)")
                 
-                print(f"[IMAGES] Finished after {elapsed}s. Total images: {len(image_urls)}")
+                print(f"[IMAGES] Step 7: ✅ Polling complete. Found {len(image_urls)} images")
                 
-                # Extract image URLs from what we found
-                print("[IMAGES] Extracting final URLs...")
-                
-                # If we didn't find any via polling, do one final aggressive check
+                # Final check
+                print("[IMAGES] Step 8: Final extraction check...")
                 if not image_urls:
-                    print("[IMAGES] No images found during polling, doing final check...")
+                    print("[IMAGES] No images found, doing aggressive final check...")
                     page_html = await page.content()
                     
-                    # Try all patterns one more time
-                    patterns = [
-                        r'https://scontent[^"\s]*?fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
-                        r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t0[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
-                        r'https://[^"\s]*?\.fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
-                        r'https://[^"\s]*?\.(?:jpeg|jpg|png|webp)\?[^"\s]*',  # Any image with query params
-                    ]
-                    
-                    for pattern in patterns:
+                    for idx, pattern in enumerate(patterns):
                         matches = re.findall(pattern, page_html)
                         if matches:
-                            print(f"[IMAGES] Final check found {len(matches)} URLs with pattern")
-                            for url in matches[:num_images * 3]:
+                            print(f"[IMAGES] Final pattern {idx+1} found {len(matches)} URLs")
+                            for url in matches[:10]:
                                 clean_url = url.replace('&amp;', '&')
-                                # Only filter out obvious non-images
                                 if clean_url not in image_urls and 'rsrc.php' not in clean_url:
                                     image_urls.append(clean_url)
-                                    print(f"[IMAGES] Final added: {clean_url[:80]}...")
+                                    print(f"[IMAGES] Final added: {clean_url[:100]}...")
                                     if len(image_urls) >= num_images:
                                         break
                         if len(image_urls) >= num_images:
                             break
                 
+                print(f"[IMAGES] Step 8: ✅ Final count: {len(image_urls)} images")
+                
                 await context.close()
+                print(f"[IMAGES] Step 9: ✅ Browser closed")
                 
                 result = {
                     "success": len(image_urls) > 0,
@@ -215,11 +216,13 @@ class MetaGenerationService:
                     "count": len(image_urls),
                     "cookies_loaded": cookies_loaded
                 }
-                print(f"[IMAGES] Result: {result}")
+                print(f"[IMAGES] ========== RESULT: {result['success']} ({result['count']} images) ==========")
                 return result
                 
             except Exception as e:
-                print(f"[IMAGES] Error during generation: {e}")
+                print(f"[IMAGES] ❌ ERROR during generation: {e}")
+                import traceback
+                print(f"[IMAGES] Traceback: {traceback.format_exc()}")
                 await context.close()
                 return {"success": False, "error": str(e), "cookies_loaded": cookies_loaded}
     
