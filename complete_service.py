@@ -91,7 +91,7 @@ class MetaGenerationService:
             # Navigate to site
             try:
                 print("[IMAGES] Navigating to meta.ai...")
-                await page.goto("https://www.meta.ai", timeout=30000)
+                await page.goto("https://www.meta.ai", timeout=20000)  # 20 second timeout
                 await asyncio.sleep(2)
             except Exception as e:
                 print(f"[IMAGES] Failed to navigate: {e}")

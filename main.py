@@ -992,6 +992,49 @@ async def health_check():
     return {"status": "ok", "service": "Meta AI Generation API"}
 
 
+@app.get("/debug/quick-test")
+async def debug_quick_test():
+    """Quick test to see if browser automation works at all."""
+    from playwright.async_api import async_playwright
+    import asyncio
+    
+    result = {"steps": []}
+    
+    try:
+        async with async_playwright() as p:
+            result["steps"].append("Starting browser...")
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir="./meta_session",
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+            )
+            result["steps"].append("Browser started")
+            
+            page = await context.new_page()
+            result["steps"].append("Page created")
+            
+            await page.goto("https://www.meta.ai", timeout=15000)
+            result["steps"].append(f"Navigated to: {page.url}")
+            
+            # Get page title
+            title = await page.title()
+            result["steps"].append(f"Page title: {title}")
+            
+            # Check for textarea
+            textarea = await page.query_selector('textarea[data-testid="composer-input"]')
+            result["textarea_found"] = textarea is not None
+            result["steps"].append(f"Textarea found: {textarea is not None}")
+            
+            await context.close()
+            result["success"] = True
+            
+    except Exception as e:
+        result["error"] = str(e)
+        result["success"] = False
+    
+    return result
+
+
 @app.post("/admin/update-cookies")
 async def update_cookies(
     cookies_json: str = Query(..., description="New storage_state JSON")
