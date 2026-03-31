@@ -148,10 +148,10 @@ class MetaGenerationService:
                             print(f"[IMAGES] [{elapsed}s] Found {len(fbcdn_matches)} URLs with pattern")
                             for url in fbcdn_matches:
                                 clean_url = url.replace('&amp;', '&')
-                                # Filter out logos and icons
+                                # Only filter out obvious non-images
                                 if clean_url not in image_urls and 'rsrc.php' not in clean_url:
                                     image_urls.append(clean_url)
-                                    print(f"[IMAGES] Found: {clean_url[:70]}...")
+                                    print(f"[IMAGES] Added: {clean_url[:80]}...")
                                     if len(image_urls) >= num_images:
                                         break
                         if len(image_urls) >= num_images:
@@ -191,16 +191,13 @@ class MetaGenerationService:
                     for pattern in patterns:
                         matches = re.findall(pattern, page_html)
                         if matches:
-                            print(f"[IMAGES] Final check found {len(matches)} URLs")
-                            for url in matches[:num_images * 2]:  # Get more to filter
+                            print(f"[IMAGES] Final check found {len(matches)} URLs with pattern")
+                            for url in matches[:num_images * 3]:
                                 clean_url = url.replace('&amp;', '&')
-                                # Filter out logos, icons, and static assets
-                                if (clean_url not in image_urls and 
-                                    'rsrc.php' not in clean_url and
-                                    'static' not in clean_url and
-                                    len(clean_url) > 100):  # Generated URLs are long
+                                # Only filter out obvious non-images
+                                if clean_url not in image_urls and 'rsrc.php' not in clean_url:
                                     image_urls.append(clean_url)
-                                    print(f"[IMAGES] Final: {clean_url[:70]}...")
+                                    print(f"[IMAGES] Final added: {clean_url[:80]}...")
                                     if len(image_urls) >= num_images:
                                         break
                         if len(image_urls) >= num_images:
@@ -448,27 +445,26 @@ class MetaGenerationService:
                                 print(f"[VIDEO] URL from link: {href[:60]}...")
                     
                     # Check 3: Extract from HTML (most reliable for Meta AI)
-                    if not video_urls or elapsed % 10 == 0:
-                        page_html = await page.content()
-                        
-                        # Multiple patterns to catch all possible video URLs
-                        patterns = [
-                            r'https://[^"\s]*?\.mp4[^"\s]*',
-                            r'https://video[^"\s]*?fbcdn\.net[^"\s]*?\.mp4[^"\s]*',
-                            r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t[^"\s]*?\.mp4[^"\s]*',
-                        ]
-                        
-                        for pattern in patterns:
-                            mp4_matches = re.findall(pattern, page_html)
-                            if mp4_matches:
-                                print(f"[VIDEO] [{elapsed}s] Found {len(mp4_matches)} .mp4 URLs with pattern")
-                                for url in mp4_matches:
-                                    clean_url = url.replace('&amp;', '&')
-                                    if clean_url not in video_urls:
-                                        video_urls.append(clean_url)
-                                        print(f"[VIDEO] URL: {clean_url[:70]}...")
-                                if len(video_urls) >= 4:
-                                    break
+                    page_html = await page.content()
+                    
+                    # Multiple patterns to catch all possible video URLs
+                    patterns = [
+                        r'https://[^"\s]*?\.mp4[^"\s]*',
+                        r'https://video[^"\s]*?fbcdn\.net[^"\s]*?\.mp4[^"\s]*',
+                        r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t[^"\s]*?\.mp4[^"\s]*',
+                    ]
+                    
+                    for pattern in patterns:
+                        mp4_matches = re.findall(pattern, page_html)
+                        if mp4_matches:
+                            print(f"[VIDEO] [{elapsed}s] Found {len(mp4_matches)} .mp4 URLs with pattern")
+                            for url in mp4_matches:
+                                clean_url = url.replace('&amp;', '&')
+                                if clean_url not in video_urls:
+                                    video_urls.append(clean_url)
+                                    print(f"[VIDEO] Added: {clean_url[:80]}...")
+                            if len(video_urls) >= 4:
+                                break
                     
                     if len(video_urls) >= 4:
                         print(f"[VIDEO] Found {len(video_urls)} videos, stopping")
