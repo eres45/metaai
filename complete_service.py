@@ -5,6 +5,7 @@ Supports image generation and video generation (via image animation).
 import asyncio
 import os
 import json
+import re
 import requests
 from pathlib import Path
 from datetime import datetime

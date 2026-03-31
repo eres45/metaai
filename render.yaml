@@ -6,6 +6,9 @@ services:
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: STORAGE_STATE
+        sync: false
+        # Set this in Render dashboard with the content of storage_state.json
     disk:
       name: meta-data
       mountPath: /app/data

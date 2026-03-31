@@ -1,0 +1,13 @@
+================================================================================
+STORAGE_STATE Environment Variable Value
+================================================================================
+
+Copy the text below and paste it as the STORAGE_STATE environment variable
+in your deployment platform (Render, Railway, etc.):
+
+{"cookies":[{"name":"datr","value":"da2paY4EnxHlKzo5Hb3EfoRb","domain":".meta.ai","path":"/","expires":-1,"httpOnly":true,"secure":true,"sameSite":"None"},{"name":"ecto_1_sess","value":"4e1e56cf-c9fd-4032-856a-d9acf4f1acfd.v1%3AjqmFOJHz0y0rtzBBNcVmRjM-IANBEojXNJManhUTUfcQxKFpw-mrNPLmfJDfNDTNCOGwkBCHzgJDAFDeB7f0KVwekF68naBS0vtHm8Y7zG95QDw-Xx8wyCIkp5rq5kzAA6QT2u68p5dKj99lt82ouxQisVh00T4HEWwR6qxhAllb87xq1rPiGuiXL45ontxorbqvSYpwqKbSiTPEkaxnFUeuDUoQAjhqX7kBdIxZhTigfeVRszvTmojOWHjAXATQXmYZD-M90o1LJWrY51Ln-9CqM3cbHE5E1HuoxENAIamo1qwKhotjmnkAypmXqLnPNMcwyC6E7EmCbFAwjXVxnisjNthGTx2FEDnLx1xvl-28KK0e_BLdyeeO_kjlCqDCgsSpRsaYVHT8YPzfdgEekf0n7HdOqxCmDztXPTIUHq_iViHBCV7mGB-W9ZJufL5e-keZE0d7SVdbG1HG3ThyMsApaO-iND3UTkDCFBs9ueS0IIfPFFmaXajRp71PthcO%3Ap3W_F9dC6TI-5zTo%3A7XX_RsYuAdX-HKVsfCc4gg.v162v3JxpBTp5vlVQykwX3r20pbTgvgRpCBkm3nQnvo","domain":".meta.ai","path":"/","expires":-1,"httpOnly":true,"secure":true,"sameSite":"None"}]}
+
+================================================================================
+Length: 924 characters
+Cookies: 2
+================================================================================
