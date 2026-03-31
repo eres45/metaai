@@ -33,15 +33,10 @@ WORKDIR /app
 
 # Copy requirements first for caching
 COPY requirements.txt .
-
-# Install Python packages with pre-built wheels (avoid Rust compilation)
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --only-binary=:all: -r requirements.txt || \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright browsers
-RUN playwright install chromium && \
-    playwright install-deps chromium
+RUN playwright install chromium
 
 # Copy application code
 COPY . .
@@ -54,7 +49,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -120,65 +120,73 @@ class MetaGenerationService:
                 await page.keyboard.press("Enter")
                 print("[IMAGES] Prompt submitted")
                 
-                # Wait for generation with HTML polling (like video generation)
-                print("[IMAGES] Polling for images (max 45s, checking every 3s)...")
-                max_wait = 45
+                # Wait for generation with polling
+                print("[IMAGES] Waiting for generation (max 30s)...")
+                max_wait = 30
                 check_interval = 3
-                min_wait = 10  # Minimum wait before checking
+                elapsed = 0
                 
-                # Initial minimum wait
-                await asyncio.sleep(min_wait)
-                elapsed = min_wait
-                
-                image_urls = []
                 while elapsed < max_wait:
-                    # Check for images in HTML (most reliable)
-                    page_html = await page.content()
-                    
-                    # Look for scontent fbcdn URLs (generated images)
-                    fbcdn_matches = re.findall(r'https://scontent[^"\s<>]*fbcdn\.net[^"\s<>]*\.(?:jpeg|jpg|png|webp)[^"\s<>]*', page_html)
-                    
-                    if fbcdn_matches:
-                        print(f"[IMAGES] [{elapsed}s] Found {len(fbcdn_matches)} image URLs in HTML")
-                        for url in fbcdn_matches[:num_images]:
-                            clean_url = url.replace('&amp;', '&')
-                            if clean_url not in image_urls:
-                                image_urls.append(clean_url)
-                                print(f"[IMAGES] Found: {clean_url[:60]}...")
-                        
-                        # Exit early if we have enough images
-                        if len(image_urls) >= num_images:
-                            print(f"[IMAGES] [{elapsed}s] Found {num_images}+ images, exiting early!")
-                            break
-                    
-                    # Wait before next check
                     await asyncio.sleep(check_interval)
                     elapsed += check_interval
                     
-                    # Log progress every 15 seconds
-                    if elapsed % 15 == 0:
-                        print(f"[IMAGES] [{elapsed}s] Still polling... (found {len(image_urls)} images)")
+                    # Check if images appeared
+                    images = await page.query_selector_all('img[src*="fbcdn.net"]')
+                    fbcdn_count = 0
+                    for img in images:
+                        src = await img.get_attribute('src')
+                        if src and 'rsrc.php' not in src:
+                            fbcdn_count += 1
+                    
+                    if fbcdn_count >= num_images:
+                        print(f"[IMAGES] Found {fbcdn_count} images after {elapsed}s")
+                        break
+                    
+                    if elapsed % 9 == 0:
+                        print(f"[IMAGES] Still waiting... ({elapsed}s, found {fbcdn_count} images)")
                 
-                print(f"[IMAGES] Finished after {elapsed}s. Total images: {len(image_urls)}")
+                print(f"[IMAGES] Finished waiting after {elapsed}s")
                 
-                # Extract image URLs from what we found
-                print("[IMAGES] Extracting final URLs...")
+                # Extract image URLs - look for images from fbcdn (Facebook CDN)
+                print("[IMAGES] Looking for images...")
                 
-                # If we didn't find any via polling, do one final check
+                # Try simple selector first (like debug endpoint)
+                images = await page.query_selector_all('img[src*="fbcdn.net"]')
+                print(f"[IMAGES] Found {len(images)} images with simple selector")
+                
+                image_urls = []
+                for i, img in enumerate(images[:num_images * 3]):
+                    src = await img.get_attribute('src')
+                    if src:
+                        print(f"[IMAGES] Image {i}: {src[:60] if src else 'None'}...")
+                    # Filter out rsrc.php (logos) and scontent (generated images)
+                    if src and src not in image_urls and 'rsrc.php' not in src and 'scontent' in src:
+                        image_urls.append(src)
+                        if len(image_urls) >= num_images:
+                            break
+                
+                # Fallback: extract from HTML if no images found
                 if not image_urls:
+                    print("[IMAGES] No images from selector, trying HTML extraction...")
                     page_html = await page.content()
-                    fbcdn_matches = re.findall(r'https://scontent[^"\s<>]*fbcdn\.net[^"\s<>]*\.(?:jpeg|jpg|png|webp)[^"\s<>]*', page_html)
-                    for url in fbcdn_matches[:num_images]:
+                    import re
+                    # Look for scontent fbcdn URLs (the generated images)
+                    fbcdn_urls = re.findall(r'https://scontent[^"\s]*fbcdn\.net[^"\s]*\.(?:jpeg|jpg|png)[^"\s]*', page_html)
+                    print(f"[IMAGES] Found {len(fbcdn_urls)} URLs in HTML")
+                    for url in fbcdn_urls:
                         clean_url = url.replace('&amp;', '&')
                         if clean_url not in image_urls:
                             image_urls.append(clean_url)
+                            print(f"[IMAGES] URL from HTML: {clean_url[:60]}...")
+                        if len(image_urls) >= num_images:
+                            break
                 
                 await context.close()
                 
                 result = {
                     "success": len(image_urls) > 0,
                     "prompt": prompt,
-                    "image_urls": image_urls[:num_images],
+                    "image_urls": image_urls,
                     "count": len(image_urls),
                     "cookies_loaded": cookies_loaded
                 }
