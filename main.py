@@ -4,12 +4,35 @@ from complete_service import get_service, MetaGenerationService
 import asyncio
 import os
 import json
+from datetime import datetime
 
 app = FastAPI(title="Meta AI Generation API")
 task_db = {}  # Task status storage
 
 # Initialize service
 service = get_service()
+
+# Auto cookie refresh task
+async def auto_refresh_cookies():
+    """Refresh cookies from storage_state.json every 30 minutes."""
+    while True:
+        try:
+            if os.path.exists('storage_state.json'):
+                with open('storage_state.json', 'r') as f:
+                    storage_state = json.load(f)
+                os.environ["STORAGE_STATE"] = json.dumps(storage_state)
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Auto-refreshed cookies: {len(storage_state.get('cookies', []))} cookies")
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Auto-refresh error: {e}")
+        
+        # Wait 30 minutes
+        await asyncio.sleep(1800)
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background tasks on server startup."""
+    asyncio.create_task(auto_refresh_cookies())
+    print("🔄 Auto cookie refresh started (every 30 minutes)")
 
 
 @app.post("/generate/images")
