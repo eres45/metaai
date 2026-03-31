@@ -148,12 +148,15 @@ class MetaGenerationService:
                             print(f"[IMAGES] [{elapsed}s] Found {len(fbcdn_matches)} URLs with pattern")
                             for url in fbcdn_matches:
                                 clean_url = url.replace('&amp;', '&')
+                                print(f"[IMAGES] Checking: {clean_url[:100]}...")
                                 # Only filter out obvious non-images
                                 if clean_url not in image_urls and 'rsrc.php' not in clean_url:
                                     image_urls.append(clean_url)
-                                    print(f"[IMAGES] Added: {clean_url[:80]}...")
+                                    print(f"[IMAGES] ✅ Added: {clean_url[:80]}...")
                                     if len(image_urls) >= num_images:
                                         break
+                                elif 'rsrc.php' in clean_url:
+                                    print(f"[IMAGES] ❌ Skipped (rsrc.php)")
                         if len(image_urls) >= num_images:
                             break
                     
