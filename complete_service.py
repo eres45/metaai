@@ -135,21 +135,32 @@ class MetaGenerationService:
                     # Check for images in HTML (most reliable)
                     page_html = await page.content()
                     
-                    # Look for scontent fbcdn URLs (generated images)
-                    fbcdn_matches = re.findall(r'https://scontent[^"\s<>]*fbcdn\.net[^"\s<>]*\.(?:jpeg|jpg|png|webp)[^"\s<>]*', page_html)
+                    # Multiple patterns to catch all possible image URLs
+                    patterns = [
+                        r'https://scontent[^"\s]*?fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
+                        r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t0[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
+                        r'https://[^"\s]*?\.fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
+                    ]
                     
-                    if fbcdn_matches:
-                        print(f"[IMAGES] [{elapsed}s] Found {len(fbcdn_matches)} image URLs in HTML")
-                        for url in fbcdn_matches[:num_images]:
-                            clean_url = url.replace('&amp;', '&')
-                            if clean_url not in image_urls:
-                                image_urls.append(clean_url)
-                                print(f"[IMAGES] Found: {clean_url[:60]}...")
-                        
-                        # Exit early if we have enough images
+                    for pattern in patterns:
+                        fbcdn_matches = re.findall(pattern, page_html)
+                        if fbcdn_matches:
+                            print(f"[IMAGES] [{elapsed}s] Found {len(fbcdn_matches)} URLs with pattern")
+                            for url in fbcdn_matches:
+                                clean_url = url.replace('&amp;', '&')
+                                # Filter out logos and icons
+                                if clean_url not in image_urls and 'rsrc.php' not in clean_url:
+                                    image_urls.append(clean_url)
+                                    print(f"[IMAGES] Found: {clean_url[:70]}...")
+                                    if len(image_urls) >= num_images:
+                                        break
                         if len(image_urls) >= num_images:
-                            print(f"[IMAGES] [{elapsed}s] Found {num_images}+ images, exiting early!")
                             break
+                    
+                    # Exit early if we have enough images
+                    if len(image_urls) >= num_images:
+                        print(f"[IMAGES] [{elapsed}s] Found {num_images}+ images, exiting early!")
+                        break
                     
                     # Wait before next check
                     await asyncio.sleep(check_interval)
@@ -164,14 +175,36 @@ class MetaGenerationService:
                 # Extract image URLs from what we found
                 print("[IMAGES] Extracting final URLs...")
                 
-                # If we didn't find any via polling, do one final check
+                # If we didn't find any via polling, do one final aggressive check
                 if not image_urls:
+                    print("[IMAGES] No images found during polling, doing final check...")
                     page_html = await page.content()
-                    fbcdn_matches = re.findall(r'https://scontent[^"\s<>]*fbcdn\.net[^"\s<>]*\.(?:jpeg|jpg|png|webp)[^"\s<>]*', page_html)
-                    for url in fbcdn_matches[:num_images]:
-                        clean_url = url.replace('&amp;', '&')
-                        if clean_url not in image_urls:
-                            image_urls.append(clean_url)
+                    
+                    # Try all patterns one more time
+                    patterns = [
+                        r'https://scontent[^"\s]*?fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
+                        r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t0[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
+                        r'https://[^"\s]*?\.fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
+                        r'https://[^"\s]*?\.(?:jpeg|jpg|png|webp)\?[^"\s]*',  # Any image with query params
+                    ]
+                    
+                    for pattern in patterns:
+                        matches = re.findall(pattern, page_html)
+                        if matches:
+                            print(f"[IMAGES] Final check found {len(matches)} URLs")
+                            for url in matches[:num_images * 2]:  # Get more to filter
+                                clean_url = url.replace('&amp;', '&')
+                                # Filter out logos, icons, and static assets
+                                if (clean_url not in image_urls and 
+                                    'rsrc.php' not in clean_url and
+                                    'static' not in clean_url and
+                                    len(clean_url) > 100):  # Generated URLs are long
+                                    image_urls.append(clean_url)
+                                    print(f"[IMAGES] Final: {clean_url[:70]}...")
+                                    if len(image_urls) >= num_images:
+                                        break
+                        if len(image_urls) >= num_images:
+                            break
                 
                 await context.close()
                 
@@ -418,26 +451,24 @@ class MetaGenerationService:
                     if not video_urls or elapsed % 10 == 0:
                         page_html = await page.content()
                         
-                        # Use the pattern that worked in debug
-                        mp4_matches = re.findall(r'https://[^"\s<>]*\.mp4[^"\s<>]*', page_html)
+                        # Multiple patterns to catch all possible video URLs
+                        patterns = [
+                            r'https://[^"\s]*?\.mp4[^"\s]*',
+                            r'https://video[^"\s]*?fbcdn\.net[^"\s]*?\.mp4[^"\s]*',
+                            r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t[^"\s]*?\.mp4[^"\s]*',
+                        ]
                         
-                        if mp4_matches:
-                            print(f"[VIDEO] [{elapsed}s] Found {len(mp4_matches)} .mp4 URLs in HTML")
-                            for url in mp4_matches:
-                                clean_url = url.replace('&amp;', '&')
-                                if clean_url not in video_urls:
-                                    video_urls.append(clean_url)
-                                    print(f"[VIDEO] URL: {clean_url[:60]}...")
-                        
-                        # Also try fbcdn specific pattern as fallback
-                        fbcdn_matches = re.findall(r'https://[^"\s<>]*fbcdn\.net[^"\s<>]*\.mp4[^"\s<>]*', page_html)
-                        if fbcdn_matches:
-                            print(f"[VIDEO] [{elapsed}s] Found {len(fbcdn_matches)} fbcdn URLs")
-                            for url in fbcdn_matches:
-                                clean_url = url.replace('&amp;', '&')
-                                if clean_url not in video_urls:
-                                    video_urls.append(clean_url)
-                                    print(f"[VIDEO] fbcdn URL: {clean_url[:60]}...")
+                        for pattern in patterns:
+                            mp4_matches = re.findall(pattern, page_html)
+                            if mp4_matches:
+                                print(f"[VIDEO] [{elapsed}s] Found {len(mp4_matches)} .mp4 URLs with pattern")
+                                for url in mp4_matches:
+                                    clean_url = url.replace('&amp;', '&')
+                                    if clean_url not in video_urls:
+                                        video_urls.append(clean_url)
+                                        print(f"[VIDEO] URL: {clean_url[:70]}...")
+                                if len(video_urls) >= 4:
+                                    break
                     
                     if len(video_urls) >= 4:
                         print(f"[VIDEO] Found {len(video_urls)} videos, stopping")
