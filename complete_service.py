@@ -141,37 +141,47 @@ class MetaGenerationService:
                     poll_count += 1
                     print(f"[IMAGES] Poll #{poll_count} at {elapsed}s...")
                     
-                    # Check for images in HTML
-                    page_html = await page.content()
-                    html_length = len(page_html)
-                    print(f"[IMAGES] HTML length: {html_length} chars")
-                    
-                    # Multiple patterns
-                    patterns = [
-                        r'https://scontent[^"\s]*?fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
-                        r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t0[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
-                        r'https://[^"\s]*?\.fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
-                    ]
-                    
-                    for idx, pattern in enumerate(patterns):
-                        fbcdn_matches = re.findall(pattern, page_html)
-                        if fbcdn_matches:
-                            print(f"[IMAGES] Pattern {idx+1} found {len(fbcdn_matches)} URLs")
-                            for url in fbcdn_matches[:5]:  # Show first 5
-                                clean_url = url.replace('&amp;', '&')
-                                print(f"[IMAGES]   Checking: {clean_url[:120]}...")
-                                
-                                if clean_url not in image_urls and 'rsrc.php' not in clean_url:
+                    # Method 1: Check actual img elements (more reliable for React apps)
+                    try:
+                        img_elements = await page.query_selector_all('img')
+                        print(f"[IMAGES] Found {len(img_elements)} <img> elements on page")
+                        
+                        for idx, img in enumerate(img_elements):
+                            src = await img.get_attribute('src')
+                            if src and 'fbcdn.net' in src and 'rsrc.php' not in src:
+                                clean_url = src.replace('&amp;', '&')
+                                if clean_url not in image_urls:
                                     image_urls.append(clean_url)
-                                    print(f"[IMAGES]   ✅ ADDED to results!")
+                                    print(f"[IMAGES]   ✅ ADDED from img element: {clean_url[:100]}...")
                                     if len(image_urls) >= num_images:
                                         break
-                                elif 'rsrc.php' in clean_url:
-                                    print(f"[IMAGES]   ❌ Skipped (rsrc.php - logo)")
-                                else:
-                                    print(f"[IMAGES]   ⚠️ Skipped (duplicate)")
-                        if len(image_urls) >= num_images:
-                            break
+                    except Exception as e:
+                        print(f"[IMAGES] Error checking img elements: {e}")
+                    
+                    # Method 2: Check HTML as fallback
+                    if len(image_urls) < num_images:
+                        page_html = await page.content()
+                        html_length = len(page_html)
+                        print(f"[IMAGES] HTML length: {html_length} chars")
+                        
+                        patterns = [
+                            r'https://scontent[^"\s]*?fbcdn\.net[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
+                            r'https://[^"\s]*?fbcdn\.net[^"\s]*?/o1/v/t0[^"\s]*?\.(?:jpeg|jpg|png|webp)[^"\s]*',
+                        ]
+                        
+                        for idx, pattern in enumerate(patterns):
+                            fbcdn_matches = re.findall(pattern, page_html)
+                            if fbcdn_matches:
+                                print(f"[IMAGES] Pattern {idx+1} found {len(fbcdn_matches)} URLs in HTML")
+                                for url in fbcdn_matches[:3]:
+                                    clean_url = url.replace('&amp;', '&')
+                                    if clean_url not in image_urls and 'rsrc.php' not in clean_url:
+                                        image_urls.append(clean_url)
+                                        print(f"[IMAGES]   ✅ ADDED from HTML: {clean_url[:100]}...")
+                                        if len(image_urls) >= num_images:
+                                            break
+                            if len(image_urls) >= num_images:
+                                break
                     
                     if len(image_urls) >= num_images:
                         print(f"[IMAGES] ✅ Found {num_images}+ images at {elapsed}s, exiting!")
